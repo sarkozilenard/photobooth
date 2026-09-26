@@ -155,11 +155,16 @@ function normalizeSettings(
       : rawFrame === "gold" || rawFrame === "minimal" || rawFrame === "none"
         ? rawFrame
         : DEFAULT_SETTINGS.frameStyle;
+  const logoPublicPath =
+    typeof stored?.logoPublicPath === "string" && stored.logoPublicPath.startsWith("/")
+      ? stored.logoPublicPath
+      : "";
   return {
     ...DEFAULT_SETTINGS,
     ...stored,
     frameStyle,
-    hasLogo,
+    logoPublicPath,
+    hasLogo: hasLogo || Boolean(logoPublicPath),
   };
 }
 
@@ -173,7 +178,11 @@ export async function getSettings(code: string): Promise<BoothSettings> {
     ? await readJsonBlob<LogoRecord>(logoMetaPath(code))
     : null;
   const hasLogo = Boolean(
-    state.logos?.[code] || logoMeta?.blobUrl || logoMeta?.mimeType || stored.hasLogo,
+    state.logos?.[code] ||
+      logoMeta?.blobUrl ||
+      logoMeta?.mimeType ||
+      stored.hasLogo ||
+      stored.logoPublicPath,
   );
   return normalizeSettings(stored, hasLogo);
 }
@@ -196,7 +205,9 @@ export async function updateSettings(
         Math.max(1, Math.round(patch.photosPerRound ?? current.photosPerRound)),
       ),
     },
-    current.hasLogo,
+    patch.hasLogo !== undefined
+      ? Boolean(patch.hasLogo)
+      : Boolean(current.hasLogo || patch.logoPublicPath),
   );
   if (useBlob()) {
     await putBoothBlob(settingsMetaPath(code), JSON.stringify(next), "application/json");

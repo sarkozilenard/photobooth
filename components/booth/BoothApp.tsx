@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestChooser } from "@/components/booth/GuestChooser";
+import { LogoPicker } from "@/components/booth/LogoPicker";
 import { LookStrip } from "@/components/booth/LookGrid";
 import { LookOverlay } from "@/components/booth/LookOverlay";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
+import { SaveToast } from "@/components/ui/SaveToast";
 import { KioskChip } from "@/components/ui/KioskChip";
 import { ASPECTS, AspectPreset, FRAMES, LAYOUTS, canUseGrid } from "@/lib/booth/guest-presets";
 import { countdownEndsAt, runSyncedCountdown } from "@/lib/booth/sync-countdown";
@@ -24,7 +26,7 @@ import { deleteLocalLogo, readLocalLogo, saveLocalLogo } from "@/lib/branding/lo
 import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
 import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
-import { saveToDevice } from "@/lib/photos/queue";
+import { archiveOnIpad, saveToDevice } from "@/lib/photos/queue";
 
 type Phase = "attract" | "live" | "countdown" | "preview";
 
@@ -65,6 +67,7 @@ export function BoothApp({
   const [connection, setConnection] = useState("új kapcsolat");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [savedToast, setSavedToast] = useState<{ title: string; detail: string } | null>(null);
   const [lookPoster, setLookPoster] = useState("");
   const [camSize, setCamSize] = useState({ w: 16, h: 9 });
   const [moreOpen, setMoreOpen] = useState(false);
@@ -111,6 +114,12 @@ export function BoothApp({
       if (url) URL.revokeObjectURL(url);
     };
   }, [code]);
+
+  useEffect(() => {
+    if (!savedToast) return;
+    const id = window.setTimeout(() => setSavedToast(null), 4500);
+    return () => window.clearTimeout(id);
+  }, [savedToast]);
 
   useEffect(() => {
     void loadSettings();
@@ -301,7 +310,7 @@ export function BoothApp({
         frameStyle,
         layoutStyle: layout,
       };
-      const logo = await loadRoomLogo(code, current.hasLogo);
+      const logo = await loadRoomLogo(code, current.hasLogo, current.logoPublicPath);
       const strip = await composeSession(shots, current, logo);
       setLocalFile(strip);
       setPreviewUrl((prev) => {
@@ -312,9 +321,9 @@ export function BoothApp({
       setPhase("preview");
       try {
         await persistFinished(strip);
-        setNotice("Mentve az iPadre. A kamera-telefonra is átmegy.");
+        setNotice("");
       } catch {
-        setNotice("Mentve az iPadre.");
+        setNotice("");
       }
     } catch (error) {
       holdPreviewRef.current = false;
@@ -356,7 +365,17 @@ export function BoothApp({
     peerRef.current?.setShareFile?.(blob);
     if (toDevices) {
       saveToDevice(blob, `photobooth-${code}-${Date.now()}.jpg`);
+      void archiveOnIpad(code, blob);
       void peerRef.current?.sendPhotoFile(blob, { action: "photo-ready" });
+      setSavedToast({
+        title: "Mentve az iPadre",
+        detail: "A fotó a Letöltésekbe / Fájlokba került.",
+      });
+      try {
+        navigator.vibrate?.(40);
+      } catch {
+        /* nincs rezgés */
+      }
     }
     try {
       const record = await uploadFinishedPhoto({
@@ -395,7 +414,7 @@ export function BoothApp({
       layoutStyle: layout,
     };
     try {
-      const logo = await loadRoomLogo(code, current.hasLogo);
+      const logo = await loadRoomLogo(code, current.hasLogo, current.logoPublicPath);
       const strip = await composeSession(shotsRef.current, current, logo);
       if (gen !== composeGen.current) return;
       setLocalFile(strip);
@@ -698,7 +717,16 @@ export function BoothApp({
             <KioskButton className="min-h-14 min-w-0 flex-1" variant="ghost" onClick={reset}>
               Új fotó
             </KioskButton>
-            <KioskButton className="min-h-14 min-w-0 flex-1" variant="gold" onClick={() => setShareOpen(true)}>
+            <KioskButton
+              className="min-h-14 min-w-0 flex-1"
+              variant="gold"
+              onClick={() => {
+                if (localFile) {
+                  saveToDevice(localFile, `photobooth-${code}-${Date.now()}.jpg`);
+                }
+                setShareOpen(true);
+              }}
+            >
               QR-kód
             </KioskButton>
           </div>
@@ -790,49 +818,57 @@ export function BoothApp({
                   <option value="minimal">Minimal</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-2 text-sm">
-                Logó (ezen a tableten, Blob nélkül)
-                {localLogoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={localLogoUrl}
-                    alt="Logó"
-                    className="h-16 w-auto max-w-[12rem] rounded-xl bg-white/5 object-contain p-2"
-                  />
-                ) : (
-                  <p className="text-white/45">Még nincs logó ezen a készüléken.</p>
-                )}
-                <input
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/gif"
-                  className="text-sm file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-black"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
+              <div className="flex flex-col gap-2 text-sm">
+                Logó
+                <LogoPicker
+                  previewUrl={localLogoUrl}
+                  selectedUrl={settings.logoPublicPath}
+                  onUpload={(file) => {
                     void saveLocalLogo(code, file).then((blob) => {
                       setLocalLogoUrl((prev) => {
                         if (prev) URL.revokeObjectURL(prev);
                         return URL.createObjectURL(blob);
                       });
+                      setSettings({
+                        ...settings,
+                        hasLogo: true,
+                        logoPublicPath: "",
+                      });
+                    });
+                  }}
+                  onPickPublic={(item) => {
+                    void fetch(item.url)
+                      .then((res) => {
+                        if (!res.ok) throw new Error("logo");
+                        return res.blob();
+                      })
+                      .then((blob) => saveLocalLogo(code, blob))
+                      .then((blob) => {
+                        setLocalLogoUrl((prev) => {
+                          if (prev) URL.revokeObjectURL(prev);
+                          return URL.createObjectURL(blob);
+                        });
+                        setSettings({
+                          ...settings,
+                          hasLogo: true,
+                          logoPublicPath: item.url,
+                        });
+                      });
+                  }}
+                  onClear={() => {
+                    void deleteLocalLogo(code);
+                    setLocalLogoUrl((prev) => {
+                      if (prev) URL.revokeObjectURL(prev);
+                      return null;
+                    });
+                    setSettings({
+                      ...settings,
+                      hasLogo: false,
+                      logoPublicPath: "",
                     });
                   }}
                 />
-                {localLogoUrl ? (
-                  <button
-                    type="button"
-                    className="w-fit text-sm text-white/50 underline"
-                    onClick={() => {
-                      void deleteLocalLogo(code);
-                      setLocalLogoUrl((prev) => {
-                        if (prev) URL.revokeObjectURL(prev);
-                        return null;
-                      });
-                    }}
-                  >
-                    Logó törlése
-                  </button>
-                ) : null}
-              </label>
+              </div>
             </div>
             <div className="mt-6 flex gap-3">
               <KioskButton variant="ghost" onClick={() => setSettingsOpen(false)}>
@@ -858,6 +894,12 @@ export function BoothApp({
           </div>
         </div>
       ) : null}
+
+      <SaveToast
+        show={Boolean(savedToast)}
+        title={savedToast?.title ?? "Mentve az iPadre"}
+        detail={savedToast?.detail}
+      />
     </div>
   );
 }

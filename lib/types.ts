@@ -25,6 +25,7 @@ export interface BoothSettings {
   frameStyle: FrameStyle;
   layoutStyle: LayoutStyle;
   hasLogo: boolean;
+  logoPublicPath?: string;
 }
 
 export interface RoomRecord {
@@ -98,6 +99,7 @@ export const DEFAULT_SETTINGS: BoothSettings = {
   frameStyle: "booth",
   layoutStyle: "strip",
   hasLogo: false,
+  logoPublicPath: "",
 };
 
 export const FUTURE_MODULES = [

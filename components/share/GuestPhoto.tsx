@@ -11,17 +11,6 @@ function isIOS() {
   );
 }
 
-function canShareFile(file: File) {
-  try {
-    return (
-      typeof navigator.canShare === "function" &&
-      navigator.canShare({ files: [file] })
-    );
-  } catch {
-    return false;
-  }
-}
-
 export function GuestPhoto({
   src,
   file: incoming,
@@ -56,8 +45,8 @@ export function GuestPhoto({
           saveToDevice(jpeg, filename);
           setStatus(
             isIOS()
-              ? "Mentve. Ha kéri, engedélyezd a letöltést. Fotókba: tartsd lenyomva a képet, vagy koppints a gombra."
-              : "A fotó letöltődött a telefonra.",
+              ? "Mentve erre a telefonra. Fotókba: tartsd lenyomva a képet → Mentés a Fotókba."
+              : "A fotó letöltődött erre a telefonra.",
           );
           return;
         }
@@ -77,8 +66,8 @@ export function GuestPhoto({
         saveToDevice(jpeg, filename);
         setStatus(
           isIOS()
-            ? "Mentve. Ha kéri, engedélyezd a letöltést. Fotókba: tartsd lenyomva a képet, vagy koppints a gombra."
-            : "A fotó letöltődött a telefonra.",
+            ? "Mentve erre a telefonra. Fotókba: tartsd lenyomva a képet → Mentés a Fotókba."
+            : "A fotó letöltődött erre a telefonra.",
         );
       } catch {
         if (!cancelled) setStatus("A fotó nem tölthető le. Frissítsd az oldalt.");
@@ -92,23 +81,10 @@ export function GuestPhoto({
     };
   }, [src, incoming, filename]);
 
-  async function sharePhoto() {
-    if (!file || !localUrl) return;
-    try {
-      if (canShareFile(file) && typeof navigator.share === "function") {
-        await navigator.share({ files: [file] });
-        setStatus("Kész.");
-        return;
-      }
-      const link = document.createElement("a");
-      link.href = localUrl;
-      link.download = filename;
-      link.click();
-      setStatus("Letöltve.");
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
-      setStatus("Tartsd lenyomva a képet, és válaszd a Mentés a Fotókba sort.");
-    }
+  function saveAgain() {
+    if (!file) return;
+    saveToDevice(file, filename);
+    setStatus("Újra mentve erre a készülékre.");
   }
 
   return (
@@ -128,14 +104,13 @@ export function GuestPhoto({
       <button
         type="button"
         disabled={!file}
-        onClick={() => void sharePhoto()}
+        onClick={saveAgain}
         className="min-h-14 w-full max-w-sm rounded-full bg-white text-lg font-semibold tracking-[0.16em] text-black uppercase disabled:opacity-40"
       >
-        Mentés / AirDrop
+        Mentés ide
       </button>
       <p className="max-w-sm text-center text-sm leading-relaxed text-white/45">
-        A fotó automatikusan mentődik. iPhone-on a Fotókba a Mentés gombbal vagy
-        hosszú nyomással kerül. AirDrop a megosztóban van.
+        Nincs megosztó. A fotó csak erre a telefonra mentődik.
       </p>
     </div>
   );

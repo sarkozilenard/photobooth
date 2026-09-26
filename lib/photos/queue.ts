@@ -1,6 +1,12 @@
 import { get, set, del, keys } from "idb-keyval";
 
 const PREFIX = "booth-upload:";
+const ARCHIVE = "booth-archive:";
+
+export async function archiveOnIpad(code: string, blob: Blob) {
+  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await set(`${ARCHIVE}${code.toUpperCase()}:${id}`, blob);
+}
 
 export interface QueuedPhoto {
   id: string;

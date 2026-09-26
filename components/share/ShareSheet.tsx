@@ -50,7 +50,7 @@ export function ShareSheet({
           const image = await makeQr(`${origin}/p/${photo.id}?t=${photo.token}`);
           if (!cancelled) {
             setQr(image);
-            setStatus("Olvasd be a telefonoddal, és töltsd le a fotót.");
+            setStatus("Olvasd be a telefonoddal. A fotó az iPadre is mentve.");
           }
           return;
         }
@@ -58,7 +58,7 @@ export function ShareSheet({
         if (!cancelled) {
           setQr(image);
           setStatus(
-            "Olvasd be a QR-t. Az iPad booth maradjon nyitva, amíg a telefon lekéri a fotót.",
+            "Olvasd be a QR-t. Az iPad maradjon nyitva, amíg a telefon lekéri a fotót.",
           );
         }
         if (file) {
@@ -73,7 +73,7 @@ export function ShareSheet({
             const cloud = await makeQr(`${origin}/p/${record.id}?t=${record.token}`);
             if (!cancelled) {
               setQr(cloud);
-              setStatus("Olvasd be a telefonoddal, és töltsd le a fotót.");
+              setStatus("Olvasd be a telefonoddal. A fotó az iPadre is mentve.");
             }
           } catch {
             /* a booth QR Blob nélkül is megy */
@@ -90,16 +90,6 @@ export function ShareSheet({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo, file, roomCode, captureId, retry]);
-
-  async function shareFromBooth() {
-    if (!file || typeof navigator.share !== "function") return;
-    const jpeg = new File([file], "photobooth.jpg", { type: "image/jpeg" });
-    try {
-      await navigator.share({ files: [jpeg] });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
-    }
-  }
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6 backdrop-blur-md">
@@ -119,11 +109,6 @@ export function ShareSheet({
           {status}
         </p>
         <div className="flex flex-wrap justify-center gap-3">
-          {file && typeof navigator.share === "function" ? (
-            <KioskButton variant="gold" onClick={() => void shareFromBooth()}>
-              AirDrop
-            </KioskButton>
-          ) : null}
           {!qr ? (
             <KioskButton variant="gold" onClick={() => setRetry((n) => n + 1)}>
               Újra

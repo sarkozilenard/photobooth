@@ -2,18 +2,51 @@ import { BoothSettings, FrameStyle, LayoutStyle } from "@/lib/types";
 import { canUseGrid } from "@/lib/booth/guest-presets";
 import { readLocalLogo } from "@/lib/branding/local-logo";
 
-export async function loadRoomLogo(code: string, hasLogo?: boolean) {
+async function bitmapFromBlob(blob: Blob) {
+  try {
+    return await createImageBitmap(blob);
+  } catch {
+    const url = URL.createObjectURL(blob);
+    try {
+      const image = document.createElement("img");
+      image.decoding = "async";
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("logo"));
+        image.src = url;
+      });
+      return createImageBitmap(image);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+}
+
+export async function loadRoomLogo(
+  code: string,
+  hasLogo?: boolean,
+  publicPath?: string,
+) {
   try {
     const local = await readLocalLogo(code);
-    if (local) return createImageBitmap(local);
+    if (local) return bitmapFromBlob(local);
   } catch {
     /* API fallback */
+  }
+  const fromPublic = publicPath?.startsWith("/") ? publicPath : "";
+  if (fromPublic) {
+    try {
+      const res = await fetch(fromPublic, { cache: "force-cache" });
+      if (res.ok) return bitmapFromBlob(await res.blob());
+    } catch {
+      /* API fallback */
+    }
   }
   if (!hasLogo) return null;
   try {
     const res = await fetch(`/api/branding/${code}/logo`);
     if (!res.ok) return null;
-    return createImageBitmap(await res.blob());
+    return bitmapFromBlob(await res.blob());
   } catch {
     return null;
   }
