@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PHOTO BOOTH
 
-## Getting Started
+iPhone 11 kamera + iPad vendégkijelző. Next.js alkalmazás, Vercelre telepíthető, helyi szerver nélkül.
 
-First, run the development server:
+## Hogyan működik
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+1. Az **iPad** a booth felület: élő kép, visszaszámlálás, előnézet, megosztás.
+2. Az **iPhone** a kamera: WebRTC-n küldi az élőképet, a fotót helyben is elmenti, és feltölti a felhőbe.
+3. A két eszköz HTTPS-en beszél. A jelzés serverless API-n megy, a videó peer-to-peer (STUN, opcionális TURN).
+
+```
+iPhone (kamera)  --WebRTC-->  iPad (booth)
+        \                         /
+         \----- HTTPS API -------/
+                  Vercel
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Indítás
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- Helyi: [http://localhost:3000](http://localhost:3000)
+- iPhone / iPad ugyanazon a Wi-Fi-n: a terminalben megjelenő **Network** URL (pl. `http://192.168.x.x:3000`)
 
-## Learn More
+Ha a Next.js blokkolja a hálózati hostot, add hozzá a géped IP-jét a `next.config.ts` `allowedDevOrigins` listájához.
 
-To learn more about Next.js, take a look at the following resources:
+### Eseményen
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. `Új booth` → jegyezd meg a 6 karakteres kódot.
+2. iPaden: **iPad booth**, Add to Home Screen, teljes képernyő.
+3. iPhone-on: QR vagy `/camera/KÓD` → **Kamera indítása**.
+4. A vendég csak a **Fotózás** gombot nyomja meg.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Teszt egy eszközön: **Teszt helyi kamerával**.
 
-## Deploy on Vercel
+Admin: `/admin`  
+Fejlesztésben a jelszó: `photobooth` (állítsd át `ADMIN_PASSWORD`-re productionben).
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Vercel
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Repo csatolása a Vercelhez.
+2. Environment: `ADMIN_PASSWORD`, `ADMIN_SECRET`.
+3. **Vercel Blob** store + `BLOB_READ_WRITE_TOKEN` — fotók és session állapot több instance között.
+4. Opcionális: Resend (`RESEND_API_KEY`, `EMAIL_FROM`) az e-mail megosztáshoz.
+5. Ha az iPhone 4G-n, az iPad Wi-Fi-n van, kell egy **TURN** szerver (`NEXT_PUBLIC_TURN_*`).
+
+A Blob nélkül a rendszer memóriában / `.data/` mappában tárol (helyi `next dev` / `next start`). Vercel serverless environmentben a Blob kell a stabil jelzéshez és a fotókhoz.
+
+## Megosztás
+
+- **AirDrop**: iPad Safari `navigator.share` → natív lap, AirDroppel.
+- **E-mail**: letöltési link (Resend, ha be van állítva).
+- **QR**: ideiglenes, tokenes `/p/[id]?t=...` URL.
+
+## Ring light
+
+A USB ring light maradjon bekapcsolva. A booth a fotó pillanatában fehér flash overlay-t ad. Hardveres vezérléshez később: `NEXT_PUBLIC_RING_LIGHT_WEBHOOK` vagy `lib/hardware/ring-light.ts`.
+
+## Továbbfejlesztés
+
+A `lib/effects/registry.ts` és `lib/camera/` szándékosan bővíthető:
+
+- több fotó / session, kollázs, GIF, boomerang
+- keret, vízjel, branding, háttércsere
+- Instagram / TikTok vágás
+- QR-galéria
+- natív iPhone kamera app (`lib/camera/native-bridge.ts`)
+
+## Technika
+
+- Next.js App Router, TypeScript, Tailwind
+- WebRTC élőkép + HTTP jelzés
+- Fotó: IndexedDB retry queue az iPhone-on, automatikus újratöltés
+- PWA / fullscreen iPad
+- Jelszavas admin

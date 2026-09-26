@@ -1,0 +1,195 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
+import { createId } from "@/lib/ids";
+import {
+  downloadBlob,
+  enqueuePhoto,
+  flushUploadQueue,
+  QueuedPhoto,
+} from "@/lib/photos/queue";
+import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
+import { BoothSettings } from "@/lib/types";
+import { connectCameraPeer, PeerBridge } from "@/lib/webrtc/peer";
+
+async function uploadPhoto(item: QueuedPhoto) {
+  const form = new FormData();
+  form.set("file", item.blob, `${item.id}.jpg`);
+  form.set("roomCode", item.roomCode);
+  form.set("captureId", item.captureId);
+  form.set("photoId", item.id);
+  const res = await fetch("/api/photos", { method: "POST", body: form });
+  if (!res.ok) return false;
+  return (await res.json()) as { photo: { id: string; token: string } };
+}
+
+export function CameraApp({ code }: { code: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const peerRef = useRef<PeerBridge | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const seenRef = useRef(new Set<string>());
+  const [ready, setReady] = useState(false);
+  const [facing, setFacing] = useState<"user" | "environment">("user");
+  const [status, setStatus] = useState("Várakozás");
+  const [count, setCount] = useState<number | null>(null);
+  const [settings, setSettings] = useState<BoothSettings | null>(null);
+  const [error, setError] = useState("");
+
+  const loadSettings = useCallback(async () => {
+    const res = await fetch(`/api/rooms/${code}`);
+    if (!res.ok) {
+      setError("Ez a booth kód nem létezik.");
+      return;
+    }
+    const data = await res.json();
+    setSettings(data.settings);
+  }, [code]);
+
+  useEffect(() => {
+    void loadSettings();
+  }, [loadSettings]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      void flushUploadQueue(async (item) => Boolean(await uploadPhoto(item)));
+    };
+    window.addEventListener("online", onOnline);
+    onOnline();
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
+  async function captureStill(captureId: string) {
+    const video = videoRef.current;
+    if (!video) return;
+    const blob = await captureFromVideo(video, {
+      captureId,
+      quality: settings?.jpegQuality ?? 0.92,
+      maxEdge: settings?.maxEdge ?? 2560,
+    });
+    const photoId = createId();
+    downloadBlob(blob, `photobooth-${photoId}.jpg`);
+    const queued: QueuedPhoto = {
+      id: photoId,
+      roomCode: code,
+      captureId,
+      blob,
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+    };
+    await enqueuePhoto(queued);
+    try {
+      const uploaded = await uploadPhoto(queued);
+      if (uploaded) {
+        await peerRef.current?.sendControl({
+          action: "photo-ready",
+          captureId,
+          photoId: uploaded.photo.id,
+          photoToken: uploaded.photo.token,
+        });
+      }
+    } catch {
+      setStatus("Mentve helyben, feltöltés később");
+    }
+  }
+
+  async function handleControl(action: string, captureId?: string) {
+    const key = `${action}:${captureId ?? ""}`;
+    if (seenRef.current.has(key)) return;
+    seenRef.current.add(key);
+
+    if (action === "start-countdown") {
+      await resumeAudio();
+      for (const n of [3, 2, 1]) {
+        setCount(n);
+        if (settings?.soundsEnabled !== false) playCountdownBeep(n);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+      setCount(null);
+    }
+    if (action === "capture" && captureId) {
+      if (settings?.soundsEnabled !== false) playShutter();
+      await captureStill(captureId);
+    }
+  }
+
+  async function start() {
+    try {
+      setError("");
+      await resumeAudio();
+      const stream = await getCameraStream(facing);
+      streamRef.current = stream;
+      if (videoRef.current) await attachStream(videoRef.current, stream);
+      const peer = await connectCameraPeer({
+        code,
+        stream,
+        onConnection: (state) => setStatus(state),
+        onControl: (msg) => {
+          void handleControl(msg.action, msg.captureId);
+        },
+      });
+      peerRef.current = peer;
+      setReady(true);
+      setStatus("csatlakoztatva");
+    } catch {
+      setError("Kamera engedély kell. iPhone: Beállítások → Safari → Kamera.");
+    }
+  }
+
+  async function flip() {
+    const next = facing === "user" ? "environment" : "user";
+    setFacing(next);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    const stream = await getCameraStream(next);
+    streamRef.current = stream;
+    if (videoRef.current) await attachStream(videoRef.current, stream);
+    const sender = peerRef.current?.pc.getSenders().find((item) => item.track?.kind === "video");
+    const [track] = stream.getVideoTracks();
+    if (sender && track) await sender.replaceTrack(track);
+  }
+
+  return (
+    <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
+      <video
+        ref={videoRef}
+        className="absolute inset-0 h-full w-full object-cover"
+        playsInline
+        muted
+        autoPlay
+      />
+      {count ? (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">
+          <span className="font-serif text-[40vw]">{count}</span>
+        </div>
+      ) : null}
+      <div className="absolute left-0 right-0 top-0 z-10 p-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <p className="text-xs tracking-[0.4em] text-[#c4a35a]">IPHONE KAMERA</p>
+        <p className="mt-1 text-sm text-white/70">{status}</p>
+      </div>
+      {!ready ? (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-black/70 p-8 text-center">
+          <p className="font-serif text-4xl">Kamera</p>
+          <p className="max-w-sm text-white/70">
+            Engedélyezd a kamerát. Az iPad ettől a pillanattól élő képet kap.
+          </p>
+          <button
+            className="min-h-16 rounded-full bg-white px-10 text-lg font-semibold tracking-[0.2em] text-black uppercase"
+            onClick={() => void start()}
+          >
+            Kamera indítása
+          </button>
+          {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        </div>
+      ) : (
+        <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <button
+            className="min-h-14 rounded-full border border-white/20 bg-black/40 px-8 text-sm tracking-[0.25em] uppercase"
+            onClick={() => void flip()}
+          >
+            Kamera váltása
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
