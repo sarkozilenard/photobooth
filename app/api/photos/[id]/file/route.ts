@@ -1,6 +1,6 @@
-import { get as blobGet } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
+import { getBoothBlob } from "@/lib/blob-store";
 import { getPhoto, readLocalPhoto } from "@/lib/store";
 
 export async function GET(
@@ -29,17 +29,15 @@ export async function GET(
   }
 
   if (photo.blobUrl) {
-    const blob = await blobGet(photo.blobUrl, {
-      access: "private",
-      useCache: true,
-    });
+    const blob = await getBoothBlob(photo.blobUrl);
     if (!blob?.stream) {
       return NextResponse.json({ error: "A fájl hiányzik" }, { status: 404 });
     }
     return new NextResponse(blob.stream, {
       headers: {
-        "Content-Type": photo.mimeType,
+        "Content-Type": photo.mimeType || "image/jpeg",
         "Cache-Control": "private, max-age=3600",
+        "Content-Disposition": `inline; filename="booth-${photo.id}.jpg"`,
       },
     });
   }

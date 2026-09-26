@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { get as blobGet, put as blobPut } from "@vercel/blob";
+import { putBoothBlob, getBoothBlob } from "./blob-store";
 import {
   AppState,
   BoothSettings,
@@ -72,10 +72,7 @@ function normalizeState(state: AppState | undefined | null): AppState {
 async function readState(): Promise<AppState> {
   if (useBlob()) {
     try {
-      const result = await blobGet(BLOB_STATE, {
-        access: "private",
-        useCache: false,
-      });
+      const result = await getBoothBlob(BLOB_STATE, false);
       if (!result?.stream) return normalizeState(globalStore.__boothState);
       const text = await new Response(result.stream).text();
       const parsed = normalizeState(JSON.parse(text) as AppState);
@@ -107,12 +104,7 @@ async function writeState(state: AppState) {
   globalStore.__boothState = state;
 
   if (useBlob()) {
-    await blobPut(BLOB_STATE, JSON.stringify(state), {
-      access: "private",
-      addRandomSuffix: false,
-      allowOverwrite: true,
-      contentType: "application/json",
-    });
+    await putBoothBlob(BLOB_STATE, JSON.stringify(state), "application/json");
     return;
   }
 
@@ -285,12 +277,7 @@ export async function storePhotoBytes(
 ): Promise<{ blobUrl?: string; localPath?: string }> {
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     try {
-      const blob = await blobPut(`photos/${id}.jpg`, bytes, {
-        access: "private",
-        addRandomSuffix: false,
-        contentType: mimeType,
-        allowOverwrite: true,
-      });
+      const blob = await putBoothBlob(`photos/${id}.jpg`, bytes, mimeType);
       return { blobUrl: blob.url };
     } catch (error) {
       if (process.env.VERCEL === "1") {
@@ -320,12 +307,11 @@ export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
   await mutateState(async (state) => {
     const record: LogoRecord = { mimeType };
     try {
-      const blob = await blobPut(`logos/${code}.${logoExt(mimeType)}`, bytes, {
-        access: "private",
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        contentType: mimeType,
-      });
+      const blob = await putBoothBlob(
+        `logos/${code}.${logoExt(mimeType)}`,
+        bytes,
+        mimeType,
+      );
       record.blobUrl = blob.url;
     } catch {
       if (process.env.VERCEL !== "1") {
@@ -356,10 +342,7 @@ export async function readLogo(code: string) {
     return { bytes, mimeType: record.mimeType };
   }
   if (record.blobUrl) {
-    const blob = await blobGet(record.blobUrl, {
-      access: "private",
-      useCache: true,
-    });
+    const blob = await getBoothBlob(record.blobUrl);
     if (!blob?.stream) return null;
     const bytes = Buffer.from(await new Response(blob.stream).arrayBuffer());
     return { bytes, mimeType: record.mimeType };

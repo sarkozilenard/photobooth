@@ -28,73 +28,98 @@ export function GuestPhoto({
   src: string;
   filename: string;
 }) {
-  const [status, setStatus] = useState("A fotó mentése…");
+  const [status, setStatus] = useState("A fotó betöltése…");
+  const [localUrl, setLocalUrl] = useState<string | null>(null);
+  const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
-    if (isIOS()) {
-      setStatus("Koppints a képre → Mentés a Fotókba.");
-      return;
-    }
     let cancelled = false;
+    let objectUrl = "";
 
-    async function save() {
+    async function load() {
       try {
-        const res = await fetch(src);
+        const res = await fetch(src, { cache: "no-store" });
+        if (!res.ok) throw new Error("A fotó nem tölthető le");
         const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 2500);
-        if (!cancelled) setStatus("Elmentve a letöltésekbe.");
+        if (!blob.size) throw new Error("Üres fájl");
+        const jpeg = new File([blob], filename, { type: "image/jpeg" });
+        objectUrl = URL.createObjectURL(jpeg);
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        setFile(jpeg);
+        setLocalUrl(objectUrl);
+        setStatus(
+          isIOS()
+            ? "Tartsd lenyomva a képet → Mentés a Fotókba. AirDrop: koppints a gombra."
+            : "Koppints a Mentés gombra.",
+        );
+        if (!isIOS()) {
+          const link = document.createElement("a");
+          link.href = objectUrl;
+          link.download = filename;
+          link.click();
+        }
       } catch {
-        if (!cancelled) setStatus("A fotó itt van. Tartsd lenyomva a mentéshez.");
+        if (!cancelled) setStatus("A fotó nem tölthető le. Frissítsd az oldalt.");
       }
     }
 
-    void save();
+    void load();
     return () => {
       cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [src, filename]);
 
   async function sharePhoto() {
+    if (!file || !localUrl) return;
     try {
-      const res = await fetch(src);
-      const blob = await res.blob();
-      const file = new File([blob], filename, { type: blob.type || "image/jpeg" });
       if (canShareFile(file) && typeof navigator.share === "function") {
-        await navigator.share({
-          files: [file],
-          title: "PHOTO BOOTH",
-        });
+        await navigator.share({ files: [file] });
         setStatus("Kész.");
         return;
       }
-      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url;
+      link.href = localUrl;
       link.download = filename;
       link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 2500);
       setStatus("Letöltve.");
-    } catch {
-      /* user cancelled share */
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      setStatus("Tartsd lenyomva a képet, és válaszd a Mentés a Fotókba sort.");
     }
   }
 
   return (
     <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-5 bg-black p-6 text-white">
-      <button type="button" className="max-w-3xl" onClick={() => void sharePhoto()}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+      {localUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={src}
+          src={localUrl}
           alt="PHOTO BOOTH fotó"
-          className="max-h-[78dvh] w-full object-contain"
+          className="max-h-[68dvh] w-full max-w-3xl object-contain"
         />
-      </button>
+      ) : (
+        <div className="h-64 w-64 animate-pulse rounded-3xl bg-white/10" />
+      )}
       <p className="max-w-sm text-center text-sm text-white/70">{status}</p>
+      <div className="flex w-full max-w-sm flex-col gap-3">
+        <button
+          type="button"
+          disabled={!file}
+          onClick={() => void sharePhoto()}
+          className="min-h-14 rounded-full bg-white text-lg font-semibold tracking-[0.16em] text-black uppercase disabled:opacity-40"
+        >
+          Mentés / AirDrop
+        </button>
+      </div>
+      <p className="max-w-sm text-center text-xs text-white/45">
+        iPhone-on a rendszer megosztója jön fel. AirDrop általában felül van. Az
+        Üzeneteket Apple nem engedi elrejteni. Fotókba: tartsd lenyomva a képet,
+        vagy válaszd a Kép mentése sort.
+      </p>
     </div>
   );
 }

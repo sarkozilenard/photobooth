@@ -1,5 +1,6 @@
 "use client";
 
+import { LayoutMock } from "@/components/booth/LayoutMock";
 import {
   ASPECTS,
   AspectPreset,
@@ -24,6 +25,8 @@ export function GuestChooser({
   frame,
   countdown,
   aspectId,
+  aspectRatio,
+  poster,
   onExperience,
   onLayout,
   onFrame,
@@ -35,6 +38,8 @@ export function GuestChooser({
   frame: FrameStyle;
   countdown: number;
   aspectId: string;
+  aspectRatio: number | null;
+  poster?: string;
   sounds?: boolean;
   flash?: boolean;
   onExperience: (preset: ExperiencePreset) => void;
@@ -59,20 +64,24 @@ export function GuestChooser({
             {preset.label}
           </button>
         ))}
-        {photos > 1
-          ? LAYOUTS.map((preset) => (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => onLayout(preset.id)}
-                className={`min-h-10 rounded-full px-4 text-xs font-semibold ${chip(preset.id === layout)}`}
-                aria-pressed={preset.id === layout}
-              >
-                {preset.label}
-              </button>
-            ))
-          : null}
       </div>
+      {photos > 1 ? (
+        <div className="flex justify-center gap-3 py-1">
+          {LAYOUTS.map((preset) => (
+            <LayoutMock
+              key={preset.id}
+              photos={photos}
+              layout={preset.id}
+              frame={frame}
+              poster={poster}
+              aspectRatio={aspectRatio}
+              active={preset.id === layout}
+              onClick={() => onLayout(preset.id)}
+              label={preset.label}
+            />
+          ))}
+        </div>
+      ) : null}
       <div className="flex flex-wrap justify-center gap-1.5">
         {FRAMES.map((preset) => (
           <button

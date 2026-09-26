@@ -65,6 +65,7 @@ export function BoothApp({
   const [shotUrls, setShotUrls] = useState<string[]>([]);
   const [shotLabel, setShotLabel] = useState("");
   const sessionRef = useRef(false);
+  const holdPreviewRef = useRef(false);
   const shotsRef = useRef<Blob[]>([]);
   const holdRef = useRef<number | null>(null);
   const ring = useRef(createRingLightDriver());
@@ -136,7 +137,7 @@ export function BoothApp({
           }
         },
         onPhoto: (blob) => {
-          if (sessionRef.current) return;
+          if (holdPreviewRef.current || sessionRef.current) return;
           setLocalFile(blob);
           setPreviewUrl((prev) => {
             if (prev) URL.revokeObjectURL(prev);
@@ -150,10 +151,11 @@ export function BoothApp({
           if (seenRef.current.has(key)) return;
           seenRef.current.add(key);
           if (msg.action === "photo-ready" && msg.photoId && msg.photoToken) {
-            if (sessionRef.current) return;
+            if (holdPreviewRef.current || sessionRef.current) return;
             void fetch(`/api/photos/${msg.photoId}?t=${msg.photoToken}`)
               .then((r) => r.json())
               .then((data) => {
+                if (holdPreviewRef.current) return;
                 if (data.photo) {
                   setPhoto(data.photo);
                   setPhase("preview");
@@ -223,6 +225,7 @@ export function BoothApp({
     if (busy || (!cameraOnline && !localCamera)) return;
     setBusy(true);
     sessionRef.current = true;
+    holdPreviewRef.current = true;
     await resumeAudio();
     try {
       await document.documentElement.requestFullscreen?.();
@@ -257,6 +260,7 @@ export function BoothApp({
       }
 
       if (shots.length === 0) {
+        holdPreviewRef.current = false;
         setNotice("A fotó nem készült el. Próbáld újra.");
         setPhase("live");
         return;
@@ -278,6 +282,7 @@ export function BoothApp({
       setNotice("");
       setPhase("preview");
     } catch (error) {
+      holdPreviewRef.current = false;
       setNotice(error instanceof Error ? error.message : "A montázs nem készült el.");
       setPhase("live");
     } finally {
@@ -289,6 +294,7 @@ export function BoothApp({
   }
 
   function reset() {
+    holdPreviewRef.current = false;
     setPhase("live");
     setPhoto(null);
     setLocalFile(null);
@@ -379,16 +385,22 @@ export function BoothApp({
 
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-3">
         <div
-          className={`relative max-h-full max-w-full overflow-hidden ${phase === "preview" ? "hidden" : ""}`}
+          className={`relative max-h-full overflow-hidden bg-black ${phase === "preview" ? "hidden" : ""}`}
+          style={
+            aspect.ratio
+              ? {
+                  aspectRatio: String(aspect.ratio),
+                  height: "100%",
+                  width: "auto",
+                  maxWidth: "100%",
+                }
+              : { height: "100%", width: "100%" }
+          }
         >
           <video
             ref={videoRef}
-            className="block max-h-full max-w-full bg-black object-contain"
-            style={{
-              filter: look.filter,
-              aspectRatio: aspect.ratio ? String(aspect.ratio) : undefined,
-              maxHeight: "100%",
-            }}
+            className="absolute inset-0 h-full w-full bg-black object-cover"
+            style={{ filter: look.filter }}
             playsInline
             muted
             autoPlay
@@ -454,6 +466,8 @@ export function BoothApp({
               frame={frameStyle}
               countdown={countdownSeconds}
               aspectId={aspect.id}
+              aspectRatio={aspect.ratio}
+              poster={lookPoster}
               onExperience={(preset) => {
                 setPhotosPerRound(preset.photos);
                 if (preset.photos === 1) setLayoutStyle("strip");

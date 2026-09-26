@@ -72,7 +72,7 @@ function drawShot(
   ctx.beginPath();
   ctx.rect(cell.x, cell.y, cell.w, cell.h);
   ctx.clip();
-  const scale = Math.min(cell.w / image.width, cell.h / image.height);
+  const scale = Math.max(cell.w / image.width, cell.h / image.height);
   const dw = image.width * scale;
   const dh = image.height * scale;
   ctx.drawImage(
