@@ -39,8 +39,7 @@ export function BoothApp({
     const res = await fetch(`/api/rooms/${code}`);
     const data = await res.json();
     setSettings(data.settings);
-    if (!localCamera) setCameraOnline(Boolean(data.cameraOnline));
-  }, [code, localCamera]);
+  }, [code]);
 
   useEffect(() => {
     void loadSettings();
@@ -69,10 +68,20 @@ export function BoothApp({
       const peer = await startBoothLive({
         code,
         onStream: (stream) => {
+          liveRef.current = true;
           void attachStream(video, stream);
           setCameraOnline(true);
         },
-        onStatus: setConnection,
+        onStatus: (text) => {
+          setConnection(text);
+          if (
+            text.includes("élő") ||
+            text.includes("csatlakozott") ||
+            text.includes("kép")
+          ) {
+            setCameraOnline(true);
+          }
+        },
         onPhoto: (blob) => {
           setLocalFile(blob);
           setPreviewUrl((prev) => {
@@ -121,25 +130,32 @@ export function BoothApp({
     if (settings?.soundsEnabled) playShutter();
     await peerRef.current?.sendControl({ action: "capture", captureId });
 
-    if (localCamera && videoRef.current) {
-      const blob = await captureFromVideo(videoRef.current, {
-        captureId,
-        quality: settings?.jpegQuality ?? 0.92,
-        maxEdge: settings?.maxEdge ?? 2560,
-      });
-      const form = new FormData();
-      form.set("file", blob, `${captureId}.jpg`);
-      form.set("roomCode", code);
-      form.set("captureId", captureId);
-      const res = await fetch("/api/photos", { method: "POST", body: form });
-      const data = await res.json();
-      setPhoto(data.photo);
-      setLocalFile(blob);
-      setPreviewUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(blob);
-      });
-      setPhase("preview");
+    if (videoRef.current && videoRef.current.videoWidth > 0) {
+      try {
+        const blob = await captureFromVideo(videoRef.current, {
+          captureId,
+          quality: settings?.jpegQuality ?? 0.92,
+          maxEdge: settings?.maxEdge ?? 2560,
+        });
+        setLocalFile(blob);
+        setPreviewUrl((prev) => {
+          if (prev) URL.revokeObjectURL(prev);
+          return URL.createObjectURL(blob);
+        });
+        setPhase("preview");
+        setBusy(false);
+        if (localCamera) {
+          const form = new FormData();
+          form.set("file", blob, `${captureId}.jpg`);
+          form.set("roomCode", code);
+          form.set("captureId", captureId);
+          const res = await fetch("/api/photos", { method: "POST", body: form });
+          const data = await res.json();
+          if (data.photo) setPhoto(data.photo);
+        }
+      } catch {
+        /* az iPhone még küldheti a fotót */
+      }
     }
   }
 
@@ -159,8 +175,7 @@ export function BoothApp({
       value: 3,
     });
     await runCountdown(captureId);
-    if (localCamera) setBusy(false);
-    else window.setTimeout(() => setBusy(false), 12000);
+    setBusy(false);
   }
 
   function reset() {
@@ -180,16 +195,20 @@ export function BoothApp({
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
-      <video
-        ref={videoRef}
-        className={`absolute inset-0 h-full w-full object-cover transition duration-500 ${
+      <div
+        className={`absolute inset-0 flex items-center justify-center bg-black transition duration-500 ${
           phase === "preview" ? "opacity-0" : "opacity-100"
         }`}
-        playsInline
-        muted
-        autoPlay
-      />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.55)_100%)]" />
+      >
+        <video
+          ref={videoRef}
+          className="h-full w-full object-contain"
+          playsInline
+          muted
+          autoPlay
+        />
+      </div>
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_55%,rgba(0,0,0,0.35)_100%)]" />
 
       {(photo || previewUrl) && phase === "preview" ? (
         // eslint-disable-next-line @next/next/no-img-element

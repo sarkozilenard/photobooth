@@ -2,7 +2,7 @@
 
 import Peer, { DataConnection, MediaConnection } from "peerjs";
 import { iceServers } from "@/lib/webrtc/config";
-import { ControlAction, SignalMessage } from "@/lib/types";
+import { SignalMessage } from "@/lib/types";
 
 export type ControlPayload = NonNullable<SignalMessage["control"]>;
 
@@ -13,44 +13,61 @@ export interface LiveLink {
   close: () => void;
 }
 
-function peerName(code: string, role: "booth" | "camera") {
-  const host = window.location.hostname.replace(/[^a-z0-9]/gi, "").slice(0, 24);
-  return `pb2-${host}-${code}-${role === "booth" ? "b" : "c"}`.toLowerCase();
+const peerOptions = () => ({
+  debug: 0 as const,
+  config: { iceServers: iceServers() },
+});
+
+export function boothPeerId(code: string) {
+  const host = window.location.hostname.replace(/[^a-z0-9]/gi, "").slice(0, 20);
+  return `pb3-${host}-${code.toLowerCase()}-b`;
 }
 
-function attemptPeer(id: string) {
+function isTaken(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const type = (error as { type?: string }).type;
+  return type === "unavailable-id" || /is taken/i.test(message);
+}
+
+function attemptPeer(id?: string) {
   return new Promise<Peer>((resolve, reject) => {
-    const peer = new Peer(id, {
-      debug: 0,
-      config: { iceServers: iceServers() },
-    });
+    const peer = id ? new Peer(id, peerOptions()) : new Peer(peerOptions());
     const timer = window.setTimeout(() => {
       peer.destroy();
       reject(new Error("A jelzőszerver nem válaszol."));
-    }, 12000);
+    }, 15000);
     peer.on("open", () => {
       window.clearTimeout(timer);
       resolve(peer);
     });
     peer.on("error", (error) => {
       window.clearTimeout(timer);
-      peer.destroy();
+      try {
+        peer.destroy();
+      } catch {
+        /* ignore */
+      }
       reject(error);
     });
   });
 }
 
-async function openPeer(id: string) {
+async function openBoothPeer(id: string) {
   let last: unknown;
-  for (let i = 0; i < 4; i += 1) {
+  for (let i = 0; i < 6; i += 1) {
     try {
       return await attemptPeer(id);
     } catch (error) {
       last = error;
-      await new Promise((r) => setTimeout(r, 700 * (i + 1)));
+      const wait = isTaken(error) ? 2500 * (i + 1) : 800 * (i + 1);
+      await new Promise((r) => setTimeout(r, wait));
     }
   }
-  throw last instanceof Error ? last : new Error("Peer kapcsolat sikertelen");
+  throw last instanceof Error ? last : new Error("Az iPad peer ID foglalt. Frissítsd az iPad booth oldalt, várj 10 másodpercet, majd próbáld újra.");
+}
+
+async function openCameraPeer() {
+  return attemptPeer();
 }
 
 function bindData(
@@ -59,9 +76,17 @@ function bindData(
   onPhoto?: (blob: Blob, meta: ControlPayload) => void,
 ) {
   conn.on("data", (data) => {
-    if (data instanceof ArrayBuffer) return;
-    if (typeof data !== "object" || data === null) return;
-    const msg = data as {
+    let payload: unknown = data;
+    if (typeof data === "string") {
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        return;
+      }
+    }
+    if (payload instanceof ArrayBuffer) return;
+    if (typeof payload !== "object" || payload === null) return;
+    const msg = payload as {
       kind?: string;
       control?: ControlPayload;
       photo?: string;
@@ -74,6 +99,52 @@ function bindData(
     }
     if (msg.kind === "control" && msg.control) onControl(msg.control);
   });
+}
+
+function emit(conn: DataConnection, body: unknown) {
+  if (!conn.open) return;
+  conn.send(JSON.stringify(body));
+}
+
+async function postControl(
+  code: string,
+  from: "booth" | "camera",
+  control: ControlPayload,
+) {
+  try {
+    await fetch(`/api/rooms/${code}/signal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ from, kind: "control", control }),
+    });
+  } catch {
+    /* offline retry happens via PeerJS */
+  }
+}
+
+async function pollControls(
+  code: string,
+  role: "booth" | "camera",
+  isClosed: () => boolean,
+  onControl: (msg: ControlPayload) => void,
+) {
+  let after = Date.now();
+  while (!isClosed()) {
+    try {
+      const res = await fetch(`/api/rooms/${code}/signal?role=${role}&after=${after}`);
+      const data = (await res.json()) as {
+        messages?: { ts: number; from?: string; kind?: string; control?: ControlPayload }[];
+      };
+      for (const message of data.messages ?? []) {
+        after = Math.max(after, message.ts);
+        if (message.from === role) continue;
+        if (message.kind === "control" && message.control) onControl(message.control);
+      }
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
 }
 
 async function blobToBase64(blob: Blob) {
@@ -93,58 +164,76 @@ export async function startCameraLive(options: {
   onControl: (msg: ControlPayload) => void;
   onStatus: (text: string) => void;
 }): Promise<LiveLink> {
-  const boothId = peerName(options.code, "booth");
-  const peer = await openPeer(peerName(options.code, "camera"));
+  const boothId = boothPeerId(options.code);
+  const peer = await openCameraPeer();
   let conn: DataConnection | null = null;
   let call: MediaConnection | null = null;
   let closed = false;
+  let linking = false;
 
   const sendControl: LiveLink["sendControl"] = async (payload) => {
-    conn?.send({ kind: "control", control: payload });
+    if (conn) emit(conn, { kind: "control", control: payload });
+    await postControl(options.code, "camera", payload);
   };
 
   const connect = () => {
-    if (closed) return;
+    if (closed || linking) return;
+    if (conn?.open) return;
+    linking = true;
     options.onStatus("iPad keresése…");
     try {
+      conn?.close();
+      call?.close();
       conn = peer.connect(boothId, { reliable: true });
-      conn.on("open", () => options.onStatus("vezérlés kész"));
+      conn.on("open", () => {
+        linking = false;
+        options.onStatus("vezérlés kész");
+      });
       bindData(conn, options.onControl);
       conn.on("error", () => {
-        if (!closed) window.setTimeout(connect, 2000);
+        linking = false;
+      });
+      conn.on("close", () => {
+        linking = false;
       });
       call = peer.call(boothId, options.stream);
+      call?.on("stream", () => options.onStatus("élő kép az iPadnek"));
       call?.on("error", () => {
-        if (!closed) window.setTimeout(connect, 2000);
+        linking = false;
       });
+      call?.on("close", () => {
+        linking = false;
+      });
+      window.setTimeout(() => {
+        linking = false;
+      }, 3000);
     } catch {
-      window.setTimeout(connect, 2000);
+      linking = false;
     }
   };
 
   peer.on("error", (error) => {
-    const type = (error as { type?: string }).type;
-    if (type === "peer-unavailable" || type === "network" || type === "disconnected") {
+    const type = error.type;
+    if (type === "peer-unavailable") {
+      options.onStatus("az iPad booth még nem elérhető, újrapróbálás…");
+    } else if (type === "network" || type === "disconnected" || type === "socket-closed") {
       options.onStatus("újracsatlakozás…");
-      if (!closed) window.setTimeout(connect, 2000);
     } else {
       options.onStatus(error.message || "kapcsolati hiba");
     }
   });
 
   connect();
-  const retry = window.setInterval(() => {
-    if (closed) return;
-    if (conn?.open && call) return;
-    connect();
-  }, 4000);
+  const retry = window.setInterval(connect, 5000);
+  void pollControls(options.code, "camera", () => closed, options.onControl);
 
   return {
     sendControl,
     sendPhotoFile: async (blob, meta) => {
-      if (!conn?.open) return;
-      const photo = await blobToBase64(blob);
-      conn.send({ kind: "photo", photo, mime: blob.type, control: meta });
+      if (conn?.open) {
+        const photo = await blobToBase64(blob);
+        emit(conn, { kind: "photo", photo, mime: blob.type, control: meta });
+      }
     },
     replaceTrack: async (track) => {
       const pc = call?.peerConnection;
@@ -168,19 +257,14 @@ export async function startBoothLive(options: {
   onPhoto: (blob: Blob, meta: ControlPayload) => void;
   onStatus: (text: string) => void;
 }): Promise<LiveLink> {
-  const peer = await openPeer(peerName(options.code, "booth"));
+  const peer = await openBoothPeer(boothPeerId(options.code));
   const conns = new Set<DataConnection>();
   let media: MediaConnection | null = null;
-  let closed = false;
 
   peer.on("connection", (incoming) => {
     conns.add(incoming);
     incoming.on("open", () => options.onStatus("iPhone csatlakozott"));
-    bindData(
-      incoming,
-      options.onControl,
-      options.onPhoto,
-    );
+    bindData(incoming, options.onControl, options.onPhoto);
     incoming.on("close", () => conns.delete(incoming));
   });
 
@@ -193,19 +277,19 @@ export async function startBoothLive(options: {
     });
   });
 
-  peer.on("open", () => options.onStatus("várja az iPhone-t"));
+  options.onStatus("várja az iPhone-t");
+  let closed = false;
+  void pollControls(options.code, "booth", () => closed, options.onControl);
 
   return {
     sendControl: async (payload) => {
-      conns.forEach((item) => {
-        if (item.open) item.send({ kind: "control", control: payload });
-      });
+      conns.forEach((item) => emit(item, { kind: "control", control: payload }));
+      await postControl(options.code, "booth", payload);
     },
     sendPhotoFile: async () => undefined,
     replaceTrack: async () => undefined,
     close: () => {
       closed = true;
-      void closed;
       media?.close();
       conns.forEach((item) => item.close());
       peer.destroy();

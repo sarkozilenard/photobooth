@@ -64,6 +64,13 @@ export function CameraApp({ code }: { code: string }) {
     return () => window.removeEventListener("online", onOnline);
   }, []);
 
+  useEffect(() => {
+    return () => {
+      peerRef.current?.close();
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
   async function captureStill(captureId: string) {
     const video = videoRef.current;
     if (!video) return;
@@ -125,10 +132,16 @@ export function CameraApp({ code }: { code: string }) {
     }
   }
 
+  const startingRef = useRef(false);
+
   async function start() {
+    if (startingRef.current) return;
+    startingRef.current = true;
     try {
       setError("");
       setStatus("Kamera indítása…");
+      peerRef.current?.close();
+      peerRef.current = null;
       await resumeAudio();
       const stream = await getCameraStream(facing);
       streamRef.current = stream;
@@ -154,6 +167,8 @@ export function CameraApp({ code }: { code: string }) {
       }
     } catch (error) {
       setError(cameraErrorMessage(error));
+    } finally {
+      startingRef.current = false;
     }
   }
 
@@ -172,7 +187,7 @@ export function CameraApp({ code }: { code: string }) {
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
       <video
         ref={videoRef}
-        className="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0 h-full w-full object-contain bg-black"
         playsInline
         muted
         autoPlay
