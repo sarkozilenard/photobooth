@@ -11,7 +11,12 @@ import { createRingLightDriver } from "@/lib/hardware/ring-light";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings, DEFAULT_SETTINGS, FrameStyle, LayoutStyle, PhotoRecord } from "@/lib/types";
 import { LiveLink, startBoothLive } from "@/lib/webrtc/live";
-import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
+import {
+  attachStream,
+  cameraErrorMessage,
+  captureFromVideo,
+  getCameraStream,
+} from "@/lib/camera/capture";
 import { composeSession, loadRoomLogo } from "@/lib/branding/compose";
 import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
@@ -51,9 +56,12 @@ export function BoothApp({
   const [localFile, setLocalFile] = useState<Blob | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [cameraOnline, setCameraOnline] = useState(localCamera);
+  const [cameraOnline, setCameraOnline] = useState(false);
   const [connection, setConnection] = useState("új kapcsolat");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [lookPoster, setLookPoster] = useState("");
+  const composeGen = useRef(0);
   const [shotUrls, setShotUrls] = useState<string[]>([]);
   const [shotLabel, setShotLabel] = useState("");
   const sessionRef = useRef(false);
@@ -92,15 +100,20 @@ export function BoothApp({
     if (!video) return;
 
     if (localCamera) {
-      let stream: MediaStream | null = null;
+      let media: MediaStream | null = null;
       void (async () => {
-        stream = await getCameraStream("user");
-        await attachStream(video, stream);
-        setStream(stream);
-        setCameraOnline(true);
-        setConnection("helyi kamera");
+        try {
+          media = await getCameraStream("user");
+          await attachStream(video, media);
+          setStream(media);
+          setCameraOnline(true);
+          setConnection("helyi kamera");
+        } catch (error) {
+          setCameraOnline(false);
+          setConnection(cameraErrorMessage(error));
+        }
       })();
-      return () => stream?.getTracks().forEach((track) => track.stop());
+      return () => media?.getTracks().forEach((track) => track.stop());
     }
 
     let stop: () => void = () => {};
@@ -156,6 +169,24 @@ export function BoothApp({
 
     return () => stop();
   }, [code, localCamera]);
+
+  useEffect(() => {
+    if (phase === "preview") return;
+    const tick = () => {
+      const video = videoRef.current;
+      if (!video || video.videoWidth < 2) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = 128;
+      canvas.height = 96;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      setLookPoster(canvas.toDataURL("image/jpeg", 0.5));
+    };
+    tick();
+    const id = window.setInterval(tick, 900);
+    return () => window.clearInterval(id);
+  }, [phase, stream]);
 
   async function captureCurrent(captureId: string) {
     if (!videoRef.current || videoRef.current.videoWidth <= 0) return null;
@@ -221,11 +252,15 @@ export function BoothApp({
         }
         if (index < total - 1) {
           setPhase("live");
-          await new Promise((r) => setTimeout(r, 900));
+          await new Promise((r) => setTimeout(r, 700));
         }
       }
 
-      if (shots.length === 0) return;
+      if (shots.length === 0) {
+        setNotice("A fotó nem készült el. Próbáld újra.");
+        setPhase("live");
+        return;
+      }
       shotsRef.current = shots;
       const current = {
         ...(settings ?? DEFAULT_SETTINGS),
@@ -240,7 +275,11 @@ export function BoothApp({
         return URL.createObjectURL(strip);
       });
       setPhoto(null);
+      setNotice("");
       setPhase("preview");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "A montázs nem készült el.");
+      setPhase("live");
     } finally {
       sessionRef.current = false;
       setBusy(false);
@@ -266,6 +305,8 @@ export function BoothApp({
     setBusy(false);
     setCount(null);
     setShotLabel("");
+    setNotice("");
+    void videoRef.current?.play().catch(() => undefined);
   }
 
   function pickLook(next: BoothLook) {
@@ -274,6 +315,7 @@ export function BoothApp({
 
   async function recompose(patch?: { frame?: FrameStyle; layout?: LayoutStyle }) {
     if (shotsRef.current.length === 0) return;
+    const gen = (composeGen.current += 1);
     const style = patch?.frame ?? frameStyle;
     const layout = patch?.layout ?? layoutStyle;
     if (patch?.frame) setFrameStyle(patch.frame);
@@ -283,14 +325,20 @@ export function BoothApp({
       frameStyle: style,
       layoutStyle: layout,
     };
-    const logo = await loadRoomLogo(code, current.hasLogo);
-    const strip = await composeSession(shotsRef.current, current, logo);
-    setLocalFile(strip);
-    setPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(strip);
-    });
-    setPhoto(null);
+    try {
+      const logo = await loadRoomLogo(code, current.hasLogo);
+      const strip = await composeSession(shotsRef.current, current, logo);
+      if (gen !== composeGen.current) return;
+      setLocalFile(strip);
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(strip);
+      });
+      setPhoto(null);
+    } catch (error) {
+      if (gen !== composeGen.current) return;
+      setNotice(error instanceof Error ? error.message : "A sablon nem készült el.");
+    }
   }
 
   function beginOperatorHold() {
@@ -304,14 +352,6 @@ export function BoothApp({
   }
 
   const title = settings?.name || "PHOTO BOOTH";
-  const stageStyle = aspect.ratio
-    ? {
-        aspectRatio: String(aspect.ratio),
-        height: "100%",
-        width: "auto",
-        maxWidth: "100%",
-      }
-    : { height: "100%", width: "100%", maxWidth: "100%" };
 
   return (
     <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
@@ -329,6 +369,7 @@ export function BoothApp({
               : "Kamera várakozik"}
             {` · ${connection}`}
           </p>
+          {notice ? <p className="mt-1 text-xs text-red-300">{notice}</p> : null}
         </div>
         <div
           className={`mt-1 h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
@@ -338,13 +379,16 @@ export function BoothApp({
 
       <div className="relative flex min-h-0 flex-1 items-center justify-center px-3">
         <div
-          className={`relative max-h-full max-w-full ${phase === "preview" ? "hidden" : ""}`}
-          style={stageStyle}
+          className={`relative max-h-full max-w-full overflow-hidden ${phase === "preview" ? "hidden" : ""}`}
         >
           <video
             ref={videoRef}
-            className="h-full w-full bg-black object-contain"
-            style={{ filter: look.filter }}
+            className="block max-h-full max-w-full bg-black object-contain"
+            style={{
+              filter: look.filter,
+              aspectRatio: aspect.ratio ? String(aspect.ratio) : undefined,
+              maxHeight: "100%",
+            }}
             playsInline
             muted
             autoPlay
@@ -359,7 +403,7 @@ export function BoothApp({
               `/api/photos/${photo?.id}/file?t=${photo?.token}`
             }
             alt="Elkészült fotó"
-            className="max-h-full max-w-full object-contain"
+            className="h-full w-full object-contain"
           />
         ) : null}
 
@@ -380,19 +424,30 @@ export function BoothApp({
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/70 p-8 text-center">
             <p className="font-serif text-4xl">Kamera csatlakoztatása</p>
             <p className="max-w-md text-white/70">
-              Nyisd meg az iPhone-on a kamera oldalt, és engedélyezd a kamerát.
+              {localCamera
+                ? connection && connection !== "új kapcsolat"
+                  ? connection
+                  : "Engedélyezd a kamerát a böngészőben."
+                : "Nyisd meg az iPhone-on a kamera oldalt, és engedélyezd a kamerát."}
             </p>
-            <p className="rounded-full border border-white/20 px-5 py-2 tracking-[0.4em]">
-              {code}
-            </p>
+            {localCamera ? null : (
+              <p className="rounded-full border border-white/20 px-5 py-2 tracking-[0.4em]">
+                {code}
+              </p>
+            )}
           </div>
         ) : null}
       </div>
 
       {phase === "live" && cameraOnline && !busy ? (
-        <div className="shrink-0 bg-black px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-          <div className="flex flex-col items-center gap-3">
-            <LookStrip stream={stream} selectedId={look.id} onSelect={pickLook} />
+        <div className="shrink-0 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
+          <div className="flex flex-col items-center gap-2">
+            <LookStrip
+              stream={stream}
+              poster={lookPoster}
+              selectedId={look.id}
+              onSelect={pickLook}
+            />
             <GuestChooser
               photos={photosPerRound}
               layout={layoutStyle}
@@ -409,7 +464,7 @@ export function BoothApp({
               onAspect={setAspect}
             />
             <KioskButton
-              className="min-h-16 min-w-[16rem] text-xl"
+              className="min-h-14 min-w-[14rem] text-lg"
               disabled={!cameraOnline}
               onClick={() => void startShoot()}
             >
@@ -420,32 +475,27 @@ export function BoothApp({
       ) : null}
 
       {phase === "preview" && (photo || localFile) ? (
-        <div className="flex shrink-0 flex-col items-center gap-3 bg-black px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
-          <p className="text-[11px] tracking-[0.28em] text-[#c4a35a] uppercase">
-            Keret és elrendezés
-          </p>
-          {shotUrls.length > 1 ? (
-            <div className="flex max-w-full gap-2 overflow-x-auto">
-              {LAYOUTS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  className={`min-h-12 shrink-0 rounded-full px-4 text-sm font-semibold ${
-                    layoutStyle === preset.id ? "bg-white text-black" : "bg-white/15"
-                  }`}
-                  onClick={() => void recompose({ layout: preset.id })}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          ) : null}
-          <div className="flex max-w-full gap-2 overflow-x-auto">
+        <div className="flex shrink-0 flex-col items-center gap-2 bg-black/90 px-3 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-2">
+          <div className="flex max-w-full flex-wrap justify-center gap-1.5 overflow-x-auto">
+            {shotUrls.length > 1
+              ? LAYOUTS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className={`min-h-10 shrink-0 rounded-full px-4 text-xs font-semibold ${
+                      layoutStyle === preset.id ? "bg-white text-black" : "bg-white/15"
+                    }`}
+                    onClick={() => void recompose({ layout: preset.id })}
+                  >
+                    {preset.label}
+                  </button>
+                ))
+              : null}
             {FRAMES.map((preset) => (
               <button
                 key={preset.id}
                 type="button"
-                className={`min-h-12 shrink-0 rounded-full px-4 text-sm font-semibold ${
+                className={`min-h-10 shrink-0 rounded-full px-4 text-xs font-semibold ${
                   frameStyle === preset.id ? "bg-white text-black" : "bg-white/15"
                 }`}
                 onClick={() => void recompose({ frame: preset.id })}
@@ -454,24 +504,11 @@ export function BoothApp({
               </button>
             ))}
           </div>
-          {shotUrls.length > 1 ? (
-            <div className="flex gap-2">
-              {shotUrls.map((url) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  key={url}
-                  src={url}
-                  alt=""
-                  className="h-16 w-24 rounded-lg object-contain bg-black ring-1 ring-white/20"
-                />
-              ))}
-            </div>
-          ) : null}
-          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <KioskButton variant="ghost" onClick={reset}>
+          <div className="flex items-center justify-center gap-3">
+            <KioskButton className="min-h-12 min-w-[9rem] text-base" variant="ghost" onClick={reset}>
               Új fotó
             </KioskButton>
-            <KioskButton variant="gold" onClick={() => setShareOpen(true)}>
+            <KioskButton className="min-h-12 min-w-[9rem] text-base" variant="gold" onClick={() => setShareOpen(true)}>
               QR-kód
             </KioskButton>
           </div>

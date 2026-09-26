@@ -15,7 +15,7 @@ import { FrameStyle, LayoutStyle } from "@/lib/types";
 function chip(on: boolean) {
   return on
     ? "bg-white text-black"
-    : "bg-black/45 text-white ring-1 ring-white/20";
+    : "bg-white/10 text-white ring-1 ring-white/20";
 }
 
 export function GuestChooser({
@@ -46,71 +46,66 @@ export function GuestChooser({
   onFlash?: (value: boolean) => void;
 }) {
   return (
-    <div className="flex w-full max-w-5xl flex-col gap-3">
-      <div className="flex flex-wrap justify-center gap-2">
-        {EXPERIENCES.map((preset) => {
-          const on = preset.photos === photos;
-          return (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => onExperience(preset)}
-              className={`min-h-12 rounded-full px-5 text-sm font-semibold ${chip(on)}`}
-              aria-pressed={on}
-            >
-              {preset.label}
-            </button>
-          );
-        })}
+    <div className="flex w-full max-w-5xl flex-col gap-1.5">
+      <div className="flex flex-wrap justify-center gap-1.5">
+        {EXPERIENCES.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => onExperience(preset)}
+            className={`min-h-10 rounded-full px-4 text-xs font-semibold ${chip(preset.photos === photos)}`}
+            aria-pressed={preset.photos === photos}
+          >
+            {preset.label}
+          </button>
+        ))}
+        {photos > 1
+          ? LAYOUTS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => onLayout(preset.id)}
+                className={`min-h-10 rounded-full px-4 text-xs font-semibold ${chip(preset.id === layout)}`}
+                aria-pressed={preset.id === layout}
+              >
+                {preset.label}
+              </button>
+            ))
+          : null}
       </div>
-      {photos > 1 ? (
-        <div className="flex flex-wrap justify-center gap-2">
-          {LAYOUTS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              onClick={() => onLayout(preset.id)}
-              className={`min-h-12 rounded-full px-5 text-sm font-semibold ${chip(preset.id === layout)}`}
-              aria-pressed={preset.id === layout}
-            >
-              {preset.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap justify-center gap-1.5">
         {FRAMES.map((preset) => (
           <button
             key={preset.id}
             type="button"
             onClick={() => onFrame(preset)}
-            className={`min-h-12 rounded-full px-5 text-sm font-semibold ${chip(preset.id === frame)}`}
+            className={`min-h-10 rounded-full px-4 text-xs font-semibold ${chip(preset.id === frame)}`}
             aria-pressed={preset.id === frame}
           >
             {preset.label}
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap justify-center gap-1.5">
         {ASPECTS.map((preset) => (
           <button
             key={preset.id}
             type="button"
             onClick={() => onAspect(preset)}
-            className={`min-h-12 rounded-full px-4 text-sm font-semibold ${chip(preset.id === aspectId)}`}
+            className={`min-h-10 rounded-full px-3 text-xs font-semibold ${chip(preset.id === aspectId)}`}
             aria-pressed={preset.id === aspectId}
           >
             {preset.label}
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap items-center justify-center gap-2">
+      <div className="flex flex-wrap items-center justify-center gap-1.5">
         {COUNTDOWNS.map((seconds) => (
           <button
             key={seconds}
             type="button"
             onClick={() => onCountdown(seconds)}
-            className={`min-h-12 min-w-14 rounded-full text-sm font-semibold ${chip(countdown === seconds)}`}
+            className={`min-h-10 min-w-12 rounded-full text-xs font-semibold ${chip(countdown === seconds)}`}
             aria-pressed={countdown === seconds}
           >
             {seconds} mp
@@ -121,7 +116,7 @@ export function GuestChooser({
           min={1}
           max={20}
           value={countdown}
-          className="h-10 w-40 accent-[#c4a35a] sm:w-56"
+          className="h-9 w-32 accent-[#c4a35a] sm:w-44"
           aria-label="Időzítő"
           onChange={(e) => onCountdown(Number(e.target.value))}
         />
