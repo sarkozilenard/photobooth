@@ -13,9 +13,10 @@ import {
   flushUploadQueue,
   QueuedPhoto,
 } from "@/lib/photos/queue";
+import { countdownEndsAt, runSyncedCountdown } from "@/lib/booth/sync-countdown";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings } from "@/lib/types";
-import { LiveLink, startCameraLive } from "@/lib/webrtc/live";
+import { ControlPayload, LiveLink, startCameraLive } from "@/lib/webrtc/live";
 
 async function uploadPhoto(item: QueuedPhoto) {
   const form = new FormData();
@@ -110,28 +111,25 @@ export function CameraApp({ code }: { code: string }) {
     }
   }
 
-  async function handleControl(
-    action: string,
-    captureId?: string,
-    value?: number,
-  ) {
-    const key = `${action}:${captureId ?? ""}`;
+  async function handleControl(msg: ControlPayload) {
+    const key = `${msg.action}:${msg.captureId ?? ""}`;
     if (seenRef.current.has(key)) return;
     seenRef.current.add(key);
 
-    if (action === "start-countdown") {
+    if (msg.action === "start-countdown") {
       await resumeAudio();
-      const seconds = Math.min(20, Math.max(1, value ?? 3));
-      for (let n = seconds; n >= 1; n -= 1) {
-        setCount(n);
-        if (settings?.soundsEnabled !== false) playCountdownBeep(n);
-        await new Promise((r) => setTimeout(r, 1000));
-      }
+      const seconds = Math.min(20, Math.max(1, msg.value ?? 3));
+      const endsAt = typeof msg.endsAt === "number" ? msg.endsAt : countdownEndsAt(seconds);
+      await runSyncedCountdown(
+        endsAt,
+        setCount,
+        settings?.soundsEnabled !== false ? playCountdownBeep : undefined,
+      );
       setCount(null);
     }
-    if (action === "capture" && captureId) {
+    if (msg.action === "capture" && msg.captureId) {
       if (settings?.soundsEnabled !== false) playShutter();
-      await captureStill(captureId);
+      await captureStill(msg.captureId);
     }
   }
 
@@ -157,7 +155,7 @@ export function CameraApp({ code }: { code: string }) {
           stream,
           onStatus: setStatus,
           onControl: (msg) => {
-            void handleControl(msg.action, msg.captureId, msg.value);
+            void handleControl(msg);
           },
         });
         peerRef.current = peer;
@@ -190,28 +188,30 @@ export function CameraApp({ code }: { code: string }) {
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
       <video
         ref={videoRef}
-        className="absolute inset-0 h-full w-full object-contain bg-black"
+        className="absolute inset-0 h-full w-full bg-black object-cover"
         playsInline
         muted
         autoPlay
       />
       {count ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/20">
-          <span className="font-serif text-[40vw]">{count}</span>
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
+          <span className="font-serif text-[28vh] leading-none tabular-nums drop-shadow-[0_0_48px_rgba(196,163,90,0.35)]">
+            {count}
+          </span>
         </div>
       ) : null}
-      <div className="absolute left-0 right-0 top-0 z-10 p-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
-        <p className="text-xs tracking-[0.4em] text-[#c4a35a]">IPHONE KAMERA</p>
-        <p className="mt-1 text-sm text-white/70">{status}</p>
+      <div className="absolute left-0 right-0 top-0 z-10 bg-gradient-to-b from-black/70 to-transparent p-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <p className="text-[11px] font-medium tracking-[0.4em] text-accent">IPHONE KAMERA</p>
+        <p className="mt-1 text-sm text-white/75">{status}</p>
       </div>
       {!ready ? (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-black/70 p-8 text-center">
-          <p className="font-serif text-4xl">Kamera</p>
-          <p className="max-w-sm text-white/70">
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-6 bg-black/80 p-8 text-center">
+          <p className="font-serif text-5xl">Kamera</p>
+          <p className="max-w-sm text-base leading-relaxed text-white/70">
             Engedélyezd a kamerát. Az iPad ettől a pillanattól élő képet kap.
           </p>
           <button
-            className="min-h-16 rounded-full bg-white px-10 text-lg font-semibold tracking-[0.2em] text-black uppercase"
+            className="min-h-16 rounded-full bg-white px-10 text-lg font-semibold tracking-[0.18em] text-black uppercase"
             onClick={() => void start()}
           >
             Kamera indítása
@@ -219,9 +219,9 @@ export function CameraApp({ code }: { code: string }) {
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
         </div>
       ) : (
-        <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center bg-gradient-to-t from-black/70 to-transparent p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
           <button
-            className="min-h-14 rounded-full border border-white/20 bg-black/40 px-8 text-sm tracking-[0.25em] uppercase"
+            className="min-h-14 rounded-full bg-black/45 px-8 text-sm font-medium tracking-[0.22em] uppercase ring-1 ring-white/25"
             onClick={() => void flip()}
           >
             Kamera váltása

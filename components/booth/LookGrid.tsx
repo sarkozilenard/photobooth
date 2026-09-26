@@ -9,14 +9,12 @@ function LookTile({
   stream,
   poster,
   selected,
-  tiny = false,
   onSelect,
 }: {
   look: BoothLook;
   stream: MediaStream | null;
   poster?: string;
   selected?: boolean;
-  tiny?: boolean;
   onSelect: (look: BoothLook) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -35,12 +33,10 @@ function LookTile({
     <button
       type="button"
       onClick={() => onSelect(look)}
-      className={`group relative shrink-0 overflow-hidden rounded-xl text-left ring-2 transition duration-200 ${
-        tiny ? "h-12 w-12" : "h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem]"
-      } ${
+      className={`relative h-[4.5rem] w-[4.5rem] shrink-0 overflow-hidden rounded-2xl text-left ring-2 transition duration-200 active:scale-[0.97] sm:h-[5.25rem] sm:w-[5.25rem] ${
         selected
-          ? "ring-[#c4a35a] ring-offset-2 ring-offset-black"
-          : "ring-white/15 active:scale-[0.98]"
+          ? "ring-accent ring-offset-2 ring-offset-black"
+          : "ring-white/15"
       }`}
       aria-pressed={selected}
       aria-label={`${look.label}: ${look.hint}`}
@@ -64,41 +60,12 @@ function LookTile({
         />
       )}
       <LookOverlay look={look} />
-      <span className="absolute inset-x-0 bottom-0 z-[2] bg-gradient-to-t from-black/85 to-transparent px-1 pb-1 pt-5">
-        <span className="block text-[9px] font-semibold uppercase tracking-[0.12em]">
+      <span className="absolute inset-x-0 bottom-0 z-[2] bg-gradient-to-t from-black/90 to-transparent px-1 pb-1.5 pt-6">
+        <span className="block text-center text-[11px] font-semibold tracking-[0.08em] uppercase">
           {look.label}
         </span>
       </span>
     </button>
-  );
-}
-
-export function LookGrid({
-  stream,
-  selectedId,
-  onSelect,
-  compact = false,
-  poster,
-}: {
-  stream: MediaStream | null;
-  selectedId?: string;
-  onSelect: (look: BoothLook) => void;
-  compact?: boolean;
-  poster?: string;
-}) {
-  return (
-    <div className={`grid grid-cols-3 ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
-      {BOOTH_LOOKS.map((look) => (
-        <LookTile
-          key={look.id}
-          look={look}
-          stream={stream}
-          poster={poster}
-          selected={look.id === selectedId}
-          onSelect={onSelect}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -107,16 +74,22 @@ export function LookStrip({
   selectedId,
   onSelect,
   poster,
-  tiny = false,
+  wrap = false,
 }: {
   stream: MediaStream | null;
   selectedId: string;
   onSelect: (look: BoothLook) => void;
   poster?: string;
-  tiny?: boolean;
+  wrap?: boolean;
 }) {
   return (
-    <div className="flex max-w-full gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      className={
+        wrap
+          ? "grid w-full grid-cols-3 justify-items-center gap-2.5"
+          : "flex max-w-full justify-center gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      }
+    >
       {BOOTH_LOOKS.map((look) => (
         <LookTile
           key={look.id}
@@ -124,7 +97,6 @@ export function LookStrip({
           stream={stream}
           poster={poster}
           selected={look.id === selectedId}
-          tiny={tiny}
           onSelect={onSelect}
         />
       ))}

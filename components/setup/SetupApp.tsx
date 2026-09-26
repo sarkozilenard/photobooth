@@ -45,9 +45,9 @@ export function SetupApp() {
     <div className="min-h-[100dvh] bg-black px-6 py-10 text-white">
       <div className="mx-auto flex w-full max-w-3xl flex-col gap-10">
         <header className="text-center">
-          <p className="text-xs tracking-[0.6em] text-[#c4a35a]">DIY SYSTEM</p>
+          <p className="text-[11px] font-medium tracking-[0.6em] text-accent">DIY SYSTEM</p>
           <h1 className="mt-4 font-serif text-5xl sm:text-7xl">PHOTO BOOTH</h1>
-          <p className="mx-auto mt-4 max-w-xl text-white/60">
+          <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-white/60">
             iPhone a kamera, iPad a vendégkijelző. Felhőből, helyi szerver nélkül.
           </p>
         </header>
@@ -102,14 +102,14 @@ export function SetupApp() {
           </div>
         )}
 
-        <ol className="grid gap-4 text-sm text-white/65 md:grid-cols-3">
-          <li className="rounded-3xl border border-white/10 p-5">
+        <ol className="grid list-none gap-4 text-sm leading-relaxed text-white/70 md:grid-cols-3">
+          <li className="rounded-3xl border border-white/10 bg-white/5 p-6">
             1. Az iPaden nyisd meg a boothot, tedd teljes képernyőre.
           </li>
-          <li className="rounded-3xl border border-white/10 p-5">
+          <li className="rounded-3xl border border-white/10 bg-white/5 p-6">
             2. Az iPhone-on indítsd a kamerát, rögzítsd a ring light elé.
           </li>
-          <li className="rounded-3xl border border-white/10 p-5">
+          <li className="rounded-3xl border border-white/10 bg-white/5 p-6">
             3. A vendég a lookot koppintja, aztán Fotózás.
           </li>
         </ol>

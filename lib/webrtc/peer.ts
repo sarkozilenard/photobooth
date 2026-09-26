@@ -13,6 +13,7 @@ export interface PeerBridge {
     photoId?: string;
     photoToken?: string;
     value?: number;
+    endsAt?: number;
   }) => Promise<void>;
   close: () => void;
 }

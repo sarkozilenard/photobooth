@@ -10,6 +10,13 @@ export interface BoothLook {
 
 export const BOOTH_LOOKS: BoothLook[] = [
   {
+    id: "original",
+    label: "Sima",
+    hint: "Kamerakép, szűrő nélkül",
+    filter: "none",
+    overlay: "none",
+  },
+  {
     id: "booth",
     label: "Booth",
     hint: "Klasszikus automata",
@@ -36,13 +43,6 @@ export const BOOTH_LOOKS: BoothLook[] = [
     hint: "Puha fekete-fehér",
     filter: "grayscale(1) contrast(1.12) brightness(1.1)",
     overlay: "vignette",
-  },
-  {
-    id: "original",
-    label: "Színes",
-    hint: "Tiszta kép",
-    filter: "none",
-    overlay: "none",
   },
   {
     id: "pop",

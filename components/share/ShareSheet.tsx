@@ -129,7 +129,7 @@ export function ShareSheet({
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6 backdrop-blur-md">
       <div className="flex w-full max-w-lg flex-col items-center gap-6 rounded-[2rem] border border-white/10 bg-[#0c0c0c] p-8 text-white shadow-2xl">
-        <p className="text-sm tracking-[0.4em] text-[#c4a35a]">QR-KÓD</p>
+        <p className="text-sm tracking-[0.4em] text-accent">QR-KÓD</p>
         {qr ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -140,7 +140,7 @@ export function ShareSheet({
         ) : (
           <div className="h-72 w-72 animate-pulse rounded-3xl bg-white/10 sm:h-80 sm:w-80" />
         )}
-        <p className="max-w-sm text-center text-base text-white/70">
+        <p className="max-w-sm text-center text-base leading-relaxed text-white/70">
           {status || "Olvasd be a telefonoddal, és töltsd le a fotót."}
         </p>
         <div className="flex flex-wrap justify-center gap-3">

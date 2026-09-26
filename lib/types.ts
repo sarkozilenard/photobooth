@@ -65,6 +65,7 @@ export interface SignalMessage {
     photoId?: string;
     photoToken?: string;
     value?: number;
+    endsAt?: number;
   };
 }
 

@@ -127,7 +127,8 @@ export function AdminApp() {
           onSubmit={(e) => void login(e)}
           className="w-full max-w-sm rounded-[2rem] border border-white/10 bg-white/5 p-8"
         >
-          <h1 className="font-serif text-3xl">Admin</h1>
+          <p className="text-[11px] font-medium tracking-[0.4em] text-accent">PHOTO BOOTH</p>
+          <h1 className="mt-3 font-serif text-4xl">Admin</h1>
           <label className="mt-6 block text-sm text-white/70" htmlFor="admin-pass">
             Jelszó
           </label>
@@ -226,7 +227,7 @@ export function AdminApp() {
                 max={20}
                 step={1}
                 value={settings.countdownSeconds}
-                className="accent-[#c4a35a]"
+            className="accent-accent"
                 onChange={(e) =>
                   setSettings({
                     ...settings,
@@ -243,7 +244,7 @@ export function AdminApp() {
                 max={6}
                 step={1}
                 value={settings.photosPerRound}
-                className="accent-[#c4a35a]"
+            className="accent-accent"
                 onChange={(e) =>
                   setSettings({
                     ...settings,
@@ -322,7 +323,7 @@ export function AdminApp() {
                 max={0.98}
                 step={0.01}
                 value={settings.jpegQuality}
-                className="accent-[#c4a35a]"
+            className="accent-accent"
                 onChange={(e) =>
                   setSettings({ ...settings, jpegQuality: Number(e.target.value) })
                 }

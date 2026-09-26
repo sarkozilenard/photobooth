@@ -173,7 +173,7 @@ export async function startCameraLive(options: {
 
   const sendControl: LiveLink["sendControl"] = async (payload) => {
     if (conn) emit(conn, { kind: "control", control: payload });
-    await postControl(options.code, "camera", payload);
+    void postControl(options.code, "camera", payload);
   };
 
   const connect = () => {
@@ -284,7 +284,7 @@ export async function startBoothLive(options: {
   return {
     sendControl: async (payload) => {
       conns.forEach((item) => emit(item, { kind: "control", control: payload }));
-      await postControl(options.code, "booth", payload);
+      void postControl(options.code, "booth", payload);
     },
     sendPhotoFile: async () => undefined,
     replaceTrack: async () => undefined,

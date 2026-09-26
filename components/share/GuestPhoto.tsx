@@ -93,32 +93,30 @@ export function GuestPhoto({
   }
 
   return (
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-5 bg-black p-6 text-white">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-6 bg-black px-6 py-10 text-white">
+      <p className="text-[11px] font-medium tracking-[0.4em] text-accent">PHOTO BOOTH</p>
       {localUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={localUrl}
           alt="PHOTO BOOTH fotó"
-          className="max-h-[68dvh] w-full max-w-3xl object-contain"
+          className="max-h-[62dvh] w-full max-w-3xl rounded-sm object-contain"
         />
       ) : (
         <div className="h-64 w-64 animate-pulse rounded-3xl bg-white/10" />
       )}
-      <p className="max-w-sm text-center text-sm text-white/70">{status}</p>
-      <div className="flex w-full max-w-sm flex-col gap-3">
-        <button
-          type="button"
-          disabled={!file}
-          onClick={() => void sharePhoto()}
-          className="min-h-14 rounded-full bg-white text-lg font-semibold tracking-[0.16em] text-black uppercase disabled:opacity-40"
-        >
-          Mentés / AirDrop
-        </button>
-      </div>
-      <p className="max-w-sm text-center text-xs text-white/45">
+      <p className="max-w-sm text-center text-base leading-relaxed text-white/75">{status}</p>
+      <button
+        type="button"
+        disabled={!file}
+        onClick={() => void sharePhoto()}
+        className="min-h-14 w-full max-w-sm rounded-full bg-white text-lg font-semibold tracking-[0.16em] text-black uppercase disabled:opacity-40"
+      >
+        Mentés / AirDrop
+      </button>
+      <p className="max-w-sm text-center text-sm leading-relaxed text-white/45">
         iPhone-on a rendszer megosztója jön fel. AirDrop általában felül van. Az
-        Üzeneteket Apple nem engedi elrejteni. Fotókba: tartsd lenyomva a képet,
-        vagy válaszd a Kép mentése sort.
+        Üzeneteket Apple nem engedi elrejteni. Fotókba: tartsd lenyomva a képet.
       </p>
     </div>
   );

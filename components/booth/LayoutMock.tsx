@@ -5,7 +5,7 @@ import { FrameStyle, LayoutStyle } from "@/lib/types";
 
 function frameClass(frame: FrameStyle) {
   if (frame === "booth" || frame === "classic") return "bg-[#f4efe8] p-1";
-  if (frame === "gold") return "bg-[#c4a35a] p-[3px]";
+  if (frame === "gold") return "bg-accent p-[3px]";
   if (frame === "minimal") return "bg-black p-1";
   return "bg-black p-0";
 }
@@ -39,8 +39,8 @@ export function LayoutMock({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`w-[5.4rem] shrink-0 rounded-xl text-left ${
-        active ? "ring-2 ring-[#c4a35a] ring-offset-2 ring-offset-black" : "ring-1 ring-white/20"
+      className={`min-w-[6.5rem] shrink-0 rounded-2xl text-left transition duration-200 active:scale-[0.98] ${
+        active ? "ring-2 ring-accent ring-offset-2 ring-offset-black" : "ring-1 ring-white/20"
       }`}
     >
       <div className={`overflow-hidden rounded-xl ${frameClass(frame)}`}>
@@ -67,7 +67,7 @@ export function LayoutMock({
           ))}
         </div>
       </div>
-      <span className="mt-1 block text-center text-[10px] font-semibold uppercase tracking-[0.14em] text-white/80">
+      <span className="mt-1.5 block text-center text-xs font-semibold uppercase tracking-[0.16em] text-white/80">
         {label}
       </span>
     </button>
