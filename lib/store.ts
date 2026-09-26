@@ -260,6 +260,29 @@ export async function writeLocalPhoto(id: string, bytes: Buffer) {
   return filePath;
 }
 
+export async function storePhotoBytes(
+  id: string,
+  bytes: Buffer,
+  mimeType: string,
+): Promise<{ blobUrl?: string; localPath?: string }> {
+  try {
+    const blob = await blobPut(`photos/${id}.jpg`, bytes, {
+      access: "private",
+      addRandomSuffix: false,
+      contentType: mimeType,
+      allowOverwrite: true,
+    });
+    return { blobUrl: blob.url };
+  } catch (error) {
+    if (process.env.VERCEL === "1") {
+      const err = new Error("BLOB_REQUIRED");
+      (err as Error & { cause?: unknown }).cause = error;
+      throw err;
+    }
+    return { localPath: await writeLocalPhoto(id, bytes) };
+  }
+}
+
 export async function readLocalPhoto(filePath: string) {
   return readFile(filePath);
 }
@@ -272,10 +295,9 @@ function logoExt(mime: string) {
 }
 
 export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
-  const previous = await mutateState(async (state) => {
-    const existing = state.logos[code];
+  await mutateState(async (state) => {
     const record: LogoRecord = { mimeType };
-    if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
       const blob = await blobPut(`logos/${code}.${logoExt(mimeType)}`, bytes, {
         access: "private",
         addRandomSuffix: false,
@@ -283,23 +305,20 @@ export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
         contentType: mimeType,
       });
       record.blobUrl = blob.url;
-    } else {
-      await mkdir(LOGOS_DIR, { recursive: true });
-      const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
-      await writeFile(filePath, bytes);
-      record.localPath = filePath;
-    }
-    state.logos[code] = record;
-    return existing;
-  });
-
-  if (previous?.localPath && previous.localPath !== (await getLogoRecord(code))?.localPath) {
-    try {
-      await unlink(previous.localPath);
     } catch {
-      /* ignore */
+      if (process.env.VERCEL !== "1") {
+        await mkdir(LOGOS_DIR, { recursive: true });
+        const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
+        await writeFile(filePath, bytes);
+        record.localPath = filePath;
+      } else {
+        record.dataBase64 = bytes.toString("base64");
+      }
     }
-  }
+    state.logos = state.logos ?? {};
+    state.logos[code] = record;
+    return record;
+  });
 }
 
 async function getLogoRecord(code: string) {
@@ -322,6 +341,12 @@ export async function readLogo(code: string) {
     if (!blob?.stream) return null;
     const bytes = Buffer.from(await new Response(blob.stream).arrayBuffer());
     return { bytes, mimeType: record.mimeType };
+  }
+  if (record.dataBase64) {
+    return {
+      bytes: Buffer.from(record.dataBase64, "base64"),
+      mimeType: record.mimeType,
+    };
   }
   return null;
 }

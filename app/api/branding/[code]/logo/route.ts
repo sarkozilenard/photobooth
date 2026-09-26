@@ -36,7 +36,20 @@ export async function POST(
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Hiányzó fájl" }, { status: 400 });
   }
-  if (!ALLOWED.has(file.type)) {
+  const name = file.name.toLowerCase();
+  const mime =
+    file.type && ALLOWED.has(file.type)
+      ? file.type
+      : name.endsWith(".png")
+        ? "image/png"
+        : name.endsWith(".webp")
+          ? "image/webp"
+          : name.endsWith(".gif")
+            ? "image/gif"
+            : name.endsWith(".jpg") || name.endsWith(".jpeg")
+              ? "image/jpeg"
+              : file.type;
+  if (!ALLOWED.has(mime)) {
     return NextResponse.json(
       { error: "PNG, JPG, WebP vagy GIF kell." },
       { status: 400 },
@@ -46,7 +59,15 @@ export async function POST(
     return NextResponse.json({ error: "Max 2 MB." }, { status: 400 });
   }
   const bytes = Buffer.from(await file.arrayBuffer());
-  await saveLogo(roomCode, bytes, file.type);
+  try {
+    await saveLogo(roomCode, bytes, mime);
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "A logó mentése nem sikerült. Ellenőrizd a Vercel Blob store-t." },
+      { status: 500 },
+    );
+  }
   return NextResponse.json({ ok: true, hasLogo: true });
 }
 

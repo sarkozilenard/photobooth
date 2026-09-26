@@ -1,11 +1,19 @@
-import { put } from "@vercel/blob";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { createId, createToken } from "@/lib/ids";
-import { getRoom, getSettings, listPhotos, savePhoto, writeLocalPhoto } from "@/lib/store";
+import {
+  getSettings,
+  listPhotos,
+  savePhoto,
+  storePhotoBytes,
+  upsertRoom,
+} from "@/lib/store";
 import { PhotoRecord } from "@/lib/types";
 
 export const maxDuration = 60;
+
+const BLOB_HELP =
+  "A QR-kódos feltöltéshez Vercel Blob kell. Vercel Dashboard → Storage → Create Blob Store → Connect to this project. Utána újra deploy. Helyben (npm run dev) Blob nélkül is megy.";
 
 export async function GET(request: NextRequest) {
   if (!(await isAdmin())) {
@@ -26,13 +34,24 @@ export async function POST(request: NextRequest) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Hiányzó fájl" }, { status: 400 });
   }
-  const room = await getRoom(roomCode);
-  if (!room) {
-    return NextResponse.json({ error: "Nincs booth" }, { status: 404 });
+  if (!roomCode) {
+    return NextResponse.json({ error: "Hiányzó booth kód" }, { status: 400 });
   }
+
+  await upsertRoom(roomCode);
 
   const settings = await getSettings(roomCode);
   const bytes = Buffer.from(await file.arrayBuffer());
+  if (bytes.length > 4.2 * 1024 * 1024) {
+    return NextResponse.json(
+      {
+        error:
+          "A fotó túl nagy a feltöltéshez. Csökkentsd a JPEG minőséget a beállításokban.",
+      },
+      { status: 413 },
+    );
+  }
+
   const token = createToken();
 
   const record: PhotoRecord = {
@@ -46,16 +65,16 @@ export async function POST(request: NextRequest) {
     captureId,
   };
 
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    const blob = await put(`photos/${photoId}.jpg`, bytes, {
-      access: "private",
-      addRandomSuffix: false,
-      contentType: record.mimeType,
-      allowOverwrite: true,
-    });
-    record.blobUrl = blob.url;
-  } else {
-    record.localPath = await writeLocalPhoto(photoId, bytes);
+  try {
+    const stored = await storePhotoBytes(photoId, bytes, record.mimeType);
+    record.blobUrl = stored.blobUrl;
+    record.localPath = stored.localPath;
+  } catch (error) {
+    const message =
+      error instanceof Error && error.message === "BLOB_REQUIRED"
+        ? BLOB_HELP
+        : "A fotó feltöltése nem sikerült.";
+    return NextResponse.json({ error: message }, { status: 503 });
   }
 
   await savePhoto(record);

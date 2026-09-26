@@ -33,9 +33,15 @@ export function ShareSheet({
         form.set("roomCode", roomCode);
         if (captureId) form.set("captureId", captureId);
         const res = await fetch("/api/photos", { method: "POST", body: form });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.photo) {
-          if (!cancelled) setStatus("A fotó még nem tölthető fel. Próbáld újra.");
+          if (!cancelled) {
+            setStatus(
+              typeof data.error === "string"
+                ? data.error
+                : "A fotó még nem tölthető fel. Próbáld újra.",
+            );
+          }
           return;
         }
         record = data.photo as PhotoRecord;
@@ -46,9 +52,13 @@ export function ShareSheet({
         return;
       }
       const res = await fetch(`/api/share/qr?photoId=${record.id}`);
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.qr) {
-        if (!cancelled) setStatus("A QR-kód nem készült el.");
+        if (!cancelled) {
+          setStatus(
+            typeof data.error === "string" ? data.error : "A QR-kód nem készült el.",
+          );
+        }
         return;
       }
       if (!cancelled) {

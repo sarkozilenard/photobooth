@@ -31,6 +31,7 @@ export function BoothApp({
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [localFile, setLocalFile] = useState<Blob | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [cameraOnline, setCameraOnline] = useState(localCamera);
   const [connection, setConnection] = useState("új kapcsolat");
   const [busy, setBusy] = useState(false);
@@ -42,8 +43,8 @@ export function BoothApp({
   const loadSettings = useCallback(async () => {
     const res = await fetch(`/api/rooms/${code}`);
     const data = await res.json();
-    setSettings(data.settings);
-  }, [code]);
+    setSettings((prev) => (settingsOpen ? prev : data.settings));
+  }, [code, settingsOpen]);
 
   useEffect(() => {
     void loadSettings();
@@ -197,7 +198,7 @@ export function BoothApp({
       form.set("file", strip, "session.jpg");
       form.set("roomCode", code);
       const res = await fetch("/api/photos", { method: "POST", body: form });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.photo) setPhoto(data.photo);
     } finally {
       sessionRef.current = false;
@@ -276,10 +277,19 @@ export function BoothApp({
             {cameraOnline ? "Élő kamera" : "Kamera várakozik"} · {connection}
           </p>
         </div>
-        <div
-          className={`h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
-          aria-label={cameraOnline ? "Kamera csatlakozva" : "Kamera nincs csatlakozva"}
-        />
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            className="rounded-full border border-white/20 bg-black/40 px-4 py-2 text-xs tracking-[0.2em] uppercase text-white/80"
+            onClick={() => setSettingsOpen(true)}
+          >
+            Beállítások
+          </button>
+          <div
+            className={`h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
+            aria-label={cameraOnline ? "Kamera csatlakozva" : "Kamera nincs csatlakozva"}
+          />
+        </div>
       </header>
 
       {!cameraOnline && phase === "live" ? (
@@ -340,6 +350,104 @@ export function BoothApp({
           onPhoto={setPhoto}
           onClose={() => setShareOpen(false)}
         />
+      ) : null}
+
+      {settingsOpen && settings ? (
+        <div className="absolute inset-0 z-40 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center">
+          <div className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-[2rem] border border-white/10 bg-[#0c0c0c] p-6 text-white">
+            <p className="text-sm tracking-[0.35em] text-[#c4a35a]">BOOTH</p>
+            <h2 className="mt-2 font-serif text-3xl">Beállítások</h2>
+            <div className="mt-6 grid gap-4">
+              <label className="flex flex-col gap-2 text-sm">
+                Visszaszámláló: {settings.countdownSeconds} mp
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={settings.countdownSeconds}
+                  className="accent-[#c4a35a]"
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      countdownSeconds: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm">
+                Fotók egy körben: {settings.photosPerRound}
+                <input
+                  type="range"
+                  min={1}
+                  max={4}
+                  value={settings.photosPerRound}
+                  className="accent-[#c4a35a]"
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      photosPerRound: Number(e.target.value),
+                    })
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm">
+                Elrendezés
+                <select
+                  value={settings.layoutStyle ?? "strip"}
+                  className="min-h-11 rounded-xl border border-white/10 bg-black px-3"
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      layoutStyle: e.target.value as BoothSettings["layoutStyle"],
+                    })
+                  }
+                >
+                  <option value="strip">Csík (egymás alatt)</option>
+                  <option value="grid">Rács</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm">
+                Keret
+                <select
+                  value={settings.frameStyle}
+                  className="min-h-11 rounded-xl border border-white/10 bg-black px-3"
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      frameStyle: e.target.value as BoothSettings["frameStyle"],
+                    })
+                  }
+                >
+                  <option value="gold">Arany</option>
+                  <option value="classic">Polaroid</option>
+                  <option value="minimal">Minimal</option>
+                  <option value="none">Nincs keret</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-6 flex gap-3">
+              <KioskButton variant="ghost" onClick={() => setSettingsOpen(false)}>
+                Mégse
+              </KioskButton>
+              <KioskButton
+                variant="gold"
+                onClick={() => {
+                  void fetch(`/api/rooms/${code}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ settings }),
+                  }).then(async (res) => {
+                    const data = await res.json();
+                    if (data.settings) setSettings(data.settings);
+                    setSettingsOpen(false);
+                  });
+                }}
+              >
+                Mentés
+              </KioskButton>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -31,7 +31,8 @@ export function AdminApp() {
       body: JSON.stringify({ password }),
     });
     if (!res.ok) {
-      setError("Hibás jelszó");
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "Hibás jelszó");
       return;
     }
     setAuthed(true);
@@ -262,6 +263,22 @@ export function AdminApp() {
                 <option value="classic">Polaroid</option>
                 <option value="minimal">Minimal</option>
                 <option value="none">Nincs keret</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              Elrendezés
+              <select
+                value={settings.layoutStyle ?? "strip"}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    layoutStyle: e.target.value as BoothSettings["layoutStyle"],
+                  })
+                }
+                className="min-h-11 rounded-xl border border-white/10 bg-black px-3"
+              >
+                <option value="strip">Csík</option>
+                <option value="grid">Rács</option>
               </select>
             </label>
             <label className="flex flex-col gap-2 text-sm">

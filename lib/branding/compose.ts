@@ -64,21 +64,39 @@ export async function composeSession(
   logo?: ImageBitmap | null,
 ) {
   const images = await Promise.all(shots.map(blobToImage));
-  const contentW = 1080;
-  const gap = 22;
-  const header = logo ? 220 : 150;
-  const footer = settings.eventCaption.trim() ? 110 : 78;
-  const side = settings.frameStyle === "none" ? 40 : 64;
+  const contentW = 900;
+  const gap = 18;
+  const header = logo ? 200 : 132;
+  const footer = settings.eventCaption.trim() ? 96 : 68;
+  const side = settings.frameStyle === "none" ? 32 : 52;
+  const grid = (settings.layoutStyle ?? "strip") === "grid" && images.length > 1;
+  const cols = 2;
+  const cellW = grid ? Math.round((contentW - gap) / 2) : contentW;
   const photoHeights = images.map((image) =>
-    Math.round(contentW * (image.height / Math.max(image.width, 1))),
+    Math.round((grid ? cellW : contentW) * (image.height / Math.max(image.width, 1))),
   );
+  const fullH = (image: ImageBitmap) =>
+    Math.round(contentW * (image.height / Math.max(image.width, 1)));
+  const rowH = (start: number, count: number) =>
+    Math.max(...photoHeights.slice(start, start + count), 0);
+  let photosBlock = 0;
+  if (grid) {
+    if (images.length === 3) {
+      photosBlock = rowH(0, 2) + gap + fullH(images[2]);
+    } else {
+      const rows = Math.ceil(images.length / cols);
+      for (let r = 0; r < rows; r += 1) {
+        photosBlock += rowH(r * cols, cols);
+        if (r < rows - 1) photosBlock += gap;
+      }
+    }
+  } else {
+    photosBlock =
+      photoHeights.reduce((sum, value) => sum + value, 0) +
+      gap * Math.max(images.length - 1, 0);
+  }
   const width = contentW + side * 2;
-  const height =
-    side * 2 +
-    header +
-    footer +
-    photoHeights.reduce((sum, value) => sum + value, 0) +
-    gap * Math.max(images.length - 1, 0);
+  const height = side * 2 + header + footer + photosBlock;
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -114,10 +132,27 @@ export async function composeSession(
   );
 
   let y = side + header;
-  for (let i = 0; i < images.length; i += 1) {
-    ctx.drawImage(images[i], side, y, contentW, photoHeights[i]);
-    y += photoHeights[i] + gap;
-    images[i].close();
+  if (grid) {
+    if (images.length === 3) {
+      const h0 = rowH(0, 2);
+      ctx.drawImage(images[0], side, y, cellW, photoHeights[0]);
+      ctx.drawImage(images[1], side + cellW + gap, y, cellW, photoHeights[1]);
+      y += h0 + gap;
+      ctx.drawImage(images[2], side, y, contentW, fullH(images[2]));
+    } else {
+      for (let i = 0; i < images.length; i += 1) {
+        const col = i % cols;
+        if (col === 0 && i > 0) y += rowH(i - cols, cols) + gap;
+        ctx.drawImage(images[i], side + col * (cellW + gap), y, cellW, photoHeights[i]);
+      }
+    }
+    images.forEach((image) => image.close());
+  } else {
+    for (let i = 0; i < images.length; i += 1) {
+      ctx.drawImage(images[i], side, y, contentW, photoHeights[i]);
+      y += photoHeights[i] + gap;
+      images[i].close();
+    }
   }
 
   if (settings.eventCaption.trim()) {
@@ -126,5 +161,5 @@ export async function composeSession(
     ctx.fillText(settings.eventCaption.trim(), width / 2, height - side - 36, contentW);
   }
 
-  return canvasBlob(canvas, settings.jpegQuality);
+  return canvasBlob(canvas, Math.min(settings.jpegQuality, 0.84));
 }

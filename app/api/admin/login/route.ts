@@ -18,7 +18,8 @@ export async function POST(request: NextRequest) {
     );
   }
   const { password } = (await request.json()) as { password?: string };
-  if (!password || !safeEqual(password, expected)) {
+  const given = (password ?? "").trim();
+  if (!given || !safeEqual(given, expected)) {
     return NextResponse.json({ error: "Hibás jelszó" }, { status: 401 });
   }
   await setAdminSession();

@@ -38,23 +38,27 @@ Ha a Next.js blokkolja a hálózati hostot, add hozzá a géped IP-jét a `next.
 Teszt egy eszközön: **Teszt helyi kamerával**.
 
 Admin: `/admin`  
-Fejlesztésben a jelszó: `photobooth` (állítsd át `ADMIN_PASSWORD`-re productionben).
+Jelszó: `photobooth`, vagy amit az `ADMIN_PASSWORD` env-ben beállítottál.
+
+Az iPaden a booth jobb felső **Beállítások** gombjával állítható a visszaszámláló, a fotók száma, a keret és az elrendezés.
 
 ## Vercel
 
 1. Repo csatolása a Vercelhez.
 2. Environment: `ADMIN_PASSWORD`, `ADMIN_SECRET`.
-3. **Vercel Blob** store + `BLOB_READ_WRITE_TOKEN` — fotók és session állapot több instance között.
-4. Opcionális: Resend (`RESEND_API_KEY`, `EMAIL_FROM`) az e-mail megosztáshoz.
+3. **Vercel Blob store** — ez **kötelező a QR-kódos fotófeltöltéshez**.
+   - Dashboard → Storage → Create Database → Blob
+   - Connect to the photobooth project
+   - A `BLOB_READ_WRITE_TOKEN` automatikusan bekerül
+   - Újra deploy
+4. Opcionális: Resend (`RESEND_API_KEY`, `EMAIL_FROM`).
 5. Ha az iPhone 4G-n, az iPad Wi-Fi-n van, kell egy **TURN** szerver (`NEXT_PUBLIC_TURN_*`).
 
-A Blob nélkül a rendszer memóriában / `.data/` mappában tárol (helyi `next dev` / `next start`). Vercel serverless environmentben a Blob kell a stabil jelzéshez és a fotókhoz.
+Blob nélkül helyi `npm run dev` működik (`.data/` mappa). Vercel serverlessen a fotó és a booth állapot nem marad meg a QR-hez Blob nélkül.
 
 ## Megosztás
 
-- **AirDrop**: iPad Safari `navigator.share` → natív lap, AirDroppel.
-- **E-mail**: letöltési link (Resend, ha be van állítva).
-- **QR**: ideiglenes, tokenes `/p/[id]?t=...` URL.
+A vendég csak **QR-kódot** kap: tokenes `/p/[id]?t=...` letöltés. Ehhez a fotónak a felhőben kell lennie (Vercel Blob).
 
 ## Ring light
 

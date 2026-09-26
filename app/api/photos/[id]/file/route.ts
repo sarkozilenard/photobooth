@@ -44,5 +44,15 @@ export async function GET(
     });
   }
 
+  if (photo.dataBase64) {
+    const bytes = Buffer.from(photo.dataBase64, "base64");
+    return new NextResponse(new Uint8Array(bytes), {
+      headers: {
+        "Content-Type": photo.mimeType,
+        "Cache-Control": "private, max-age=3600",
+      },
+    });
+  }
+
   return NextResponse.json({ error: "A fájl hiányzik" }, { status: 404 });
 }

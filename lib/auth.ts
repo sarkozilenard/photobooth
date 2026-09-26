@@ -13,7 +13,7 @@ function secret() {
 }
 
 export function adminPassword() {
-  return process.env.ADMIN_PASSWORD || (process.env.NODE_ENV !== "production" ? "photobooth" : "");
+  return (process.env.ADMIN_PASSWORD || "photobooth").trim();
 }
 
 function sign(value: string) {

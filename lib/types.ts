@@ -10,6 +10,7 @@ export type ControlAction =
   | "renegotiate";
 
 export type FrameStyle = "none" | "gold" | "classic" | "minimal";
+export type LayoutStyle = "strip" | "grid";
 
 export interface BoothSettings {
   name: string;
@@ -22,6 +23,7 @@ export interface BoothSettings {
   countdownSeconds: number;
   photosPerRound: number;
   frameStyle: FrameStyle;
+  layoutStyle: LayoutStyle;
   hasLogo: boolean;
 }
 
@@ -45,6 +47,7 @@ export interface PhotoRecord {
   token: string;
   blobUrl?: string;
   localPath?: string;
+  dataBase64?: string;
   captureId?: string;
 }
 
@@ -69,6 +72,7 @@ export interface LogoRecord {
   mimeType: string;
   blobUrl?: string;
   localPath?: string;
+  dataBase64?: string;
 }
 
 export interface AppState {
@@ -91,6 +95,7 @@ export const DEFAULT_SETTINGS: BoothSettings = {
   countdownSeconds: 3,
   photosPerRound: 3,
   frameStyle: "gold",
+  layoutStyle: "strip",
   hasLogo: false,
 };
 
