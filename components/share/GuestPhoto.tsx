@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { saveToDevice } from "@/lib/photos/queue";
 
 function isIOS() {
   if (typeof navigator === "undefined") return false;
@@ -52,10 +53,11 @@ export function GuestPhoto({
           }
           setFile(jpeg);
           setLocalUrl(objectUrl);
+          saveToDevice(jpeg, filename);
           setStatus(
             isIOS()
-              ? "Tartsd lenyomva a képet → Mentés a Fotókba. AirDrop: koppints a gombra."
-              : "Koppints a Mentés gombra.",
+              ? "Mentve. Ha kéri, engedélyezd a letöltést. Fotókba: tartsd lenyomva a képet, vagy koppints a gombra."
+              : "A fotó letöltődött a telefonra.",
           );
           return;
         }
@@ -72,17 +74,12 @@ export function GuestPhoto({
         }
         setFile(jpeg);
         setLocalUrl(objectUrl);
+        saveToDevice(jpeg, filename);
         setStatus(
           isIOS()
-            ? "Tartsd lenyomva a képet → Mentés a Fotókba. AirDrop: koppints a gombra."
-            : "Koppints a Mentés gombra.",
+            ? "Mentve. Ha kéri, engedélyezd a letöltést. Fotókba: tartsd lenyomva a képet, vagy koppints a gombra."
+            : "A fotó letöltődött a telefonra.",
         );
-        if (!isIOS()) {
-          const link = document.createElement("a");
-          link.href = objectUrl;
-          link.download = filename;
-          link.click();
-        }
       } catch {
         if (!cancelled) setStatus("A fotó nem tölthető le. Frissítsd az oldalt.");
       }
@@ -137,8 +134,8 @@ export function GuestPhoto({
         Mentés / AirDrop
       </button>
       <p className="max-w-sm text-center text-sm leading-relaxed text-white/45">
-        iPhone-on a rendszer megosztója jön fel. AirDrop általában felül van. Az
-        Üzeneteket Apple nem engedi elrejteni. Fotókba: tartsd lenyomva a képet.
+        A fotó automatikusan mentődik. iPhone-on a Fotókba a Mentés gombbal vagy
+        hosszú nyomással kerül. AirDrop a megosztóban van.
       </p>
     </div>
   );

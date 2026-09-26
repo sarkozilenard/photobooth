@@ -24,6 +24,7 @@ import { deleteLocalLogo, readLocalLogo, saveLocalLogo } from "@/lib/branding/lo
 import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
 import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
+import { saveToDevice } from "@/lib/photos/queue";
 
 type Phase = "attract" | "live" | "countdown" | "preview";
 
@@ -311,9 +312,9 @@ export function BoothApp({
       setPhase("preview");
       try {
         await persistFinished(strip);
-        setNotice("");
+        setNotice("Mentve az iPadre. A kamera-telefonra is átmegy.");
       } catch {
-        setNotice("");
+        setNotice("Mentve az iPadre.");
       }
     } catch (error) {
       holdPreviewRef.current = false;
@@ -351,8 +352,12 @@ export function BoothApp({
     void videoRef.current?.play().catch(() => undefined);
   }
 
-  async function persistFinished(blob: Blob) {
+  async function persistFinished(blob: Blob, toDevices = true) {
     peerRef.current?.setShareFile?.(blob);
+    if (toDevices) {
+      saveToDevice(blob, `photobooth-${code}-${Date.now()}.jpg`);
+      void peerRef.current?.sendPhotoFile(blob, { action: "photo-ready" });
+    }
     try {
       const record = await uploadFinishedPhoto({
         file: blob,
@@ -399,7 +404,7 @@ export function BoothApp({
         return URL.createObjectURL(strip);
       });
       try {
-        await persistFinished(strip);
+        await persistFinished(strip, false);
       } catch (error) {
         setNotice(
           error instanceof Error

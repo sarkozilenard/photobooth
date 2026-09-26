@@ -54,11 +54,31 @@ export async function flushUploadQueue(
   }
 }
 
-export function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
+function isAppleTouch() {
+  if (typeof navigator === "undefined") return false;
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+export function saveToDevice(blob: Blob, filename: string) {
+  const name = filename.toLowerCase().endsWith(".jpg") ? filename : `${filename}.jpg`;
+  const packed = isAppleTouch()
+    ? new Blob([blob], { type: "application/octet-stream" })
+    : new Blob([blob], { type: blob.type || "image/jpeg" });
+  const url = URL.createObjectURL(packed);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = name;
+  link.rel = "noopener";
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+export function downloadBlob(blob: Blob, filename: string) {
+  saveToDevice(blob, filename);
 }

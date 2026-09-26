@@ -71,12 +71,31 @@ async function openCameraPeer() {
   return attemptPeer();
 }
 
+async function pushShare(conn: DataConnection, blob: Blob) {
+  if (!conn.open) return;
+  const photo = await blobToBase64(blob);
+  const slice = 8000;
+  const total = Math.ceil(photo.length / slice);
+  emit(conn, { kind: "share-begin", mime: blob.type || "image/jpeg", total });
+  for (let i = 0; i < total; i += 1) {
+    emit(conn, {
+      kind: "share-part",
+      i,
+      data: photo.slice(i * slice, (i + 1) * slice),
+    });
+  }
+  emit(conn, { kind: "share-end" });
+}
+
 function bindData(
   conn: DataConnection,
   onControl: (msg: ControlPayload) => void,
   onPhoto?: (blob: Blob, meta: ControlPayload) => void,
   getShare?: () => Blob | null,
+  onFinished?: (blob: Blob) => void,
 ) {
+  const parts: string[] = [];
+  let total = 0;
   conn.on("data", (data) => {
     let payload: unknown = data;
     if (typeof data === "string") {
@@ -93,6 +112,9 @@ function bindData(
       control?: ControlPayload;
       photo?: string;
       mime?: string;
+      total?: number;
+      i?: number;
+      data?: string;
     };
     if (msg.kind === "want-share") {
       const blob = getShare?.() ?? null;
@@ -101,19 +123,23 @@ function bindData(
           emit(conn, { kind: "share-empty" });
           return;
         }
-        const photo = await blobToBase64(blob);
-        const slice = 8000;
-        const total = Math.ceil(photo.length / slice);
-        emit(conn, { kind: "share-begin", mime: blob.type || "image/jpeg", total });
-        for (let i = 0; i < total; i += 1) {
-          emit(conn, {
-            kind: "share-part",
-            i,
-            data: photo.slice(i * slice, (i + 1) * slice),
-          });
-        }
-        emit(conn, { kind: "share-end" });
+        await pushShare(conn, blob);
       })();
+      return;
+    }
+    if (msg.kind === "share-begin") {
+      total = Number(msg.total) || 0;
+      parts.length = 0;
+      return;
+    }
+    if (msg.kind === "share-part" && typeof msg.i === "number" && msg.data) {
+      parts[msg.i] = msg.data;
+      return;
+    }
+    if (msg.kind === "share-end" && onFinished) {
+      if (total && parts.filter(Boolean).length < total) return;
+      const bytes = Uint8Array.from(atob(parts.join("")), (c) => c.charCodeAt(0));
+      onFinished(new Blob([bytes], { type: "image/jpeg" }));
       return;
     }
     if (msg.kind === "photo" && msg.photo && msg.control && onPhoto) {
@@ -187,6 +213,7 @@ export async function startCameraLive(options: {
   stream: MediaStream;
   onControl: (msg: ControlPayload) => void;
   onStatus: (text: string) => void;
+  onFinished?: (blob: Blob) => void;
 }): Promise<LiveLink> {
   const boothId = boothPeerId(options.code);
   const peer = await openCameraPeer();
@@ -213,7 +240,7 @@ export async function startCameraLive(options: {
         linking = false;
         options.onStatus("vezérlés kész");
       });
-      bindData(conn, options.onControl);
+      bindData(conn, options.onControl, undefined, undefined, options.onFinished);
       conn.on("error", () => {
         linking = false;
       });
@@ -311,7 +338,9 @@ export async function startBoothLive(options: {
       conns.forEach((item) => emit(item, { kind: "control", control: payload }));
       void postControl(options.code, "booth", payload);
     },
-    sendPhotoFile: async () => undefined,
+    sendPhotoFile: async (blob) => {
+      await Promise.all([...conns].map((item) => pushShare(item, blob)));
+    },
     replaceTrack: async () => undefined,
     setShareFile: (blob) => {
       shareBlob = blob;
