@@ -70,11 +70,19 @@ export async function POST(request: NextRequest) {
     record.blobUrl = stored.blobUrl;
     record.localPath = stored.localPath;
   } catch (error) {
-    const message =
-      error instanceof Error && error.message === "BLOB_REQUIRED"
-        ? BLOB_HELP
-        : "A fotó feltöltése nem sikerült.";
-    return NextResponse.json({ error: message }, { status: 503 });
+    const detail =
+      error instanceof Error && error.cause instanceof Error
+        ? error.cause.message
+        : error instanceof Error
+          ? error.message
+          : "";
+    const missingToken =
+      !process.env.BLOB_READ_WRITE_TOKEN ||
+      /token|unauthorized|403|401/i.test(detail);
+    const message = missingToken
+      ? "A Blob store nincs csatolva, vagy nincs BLOB_READ_WRITE_TOKEN. Vercel → Storage → Blob → Connect to project, aztán Redeploy."
+      : BLOB_HELP;
+    return NextResponse.json({ error: message, detail }, { status: 503 });
   }
 
   await savePhoto(record);

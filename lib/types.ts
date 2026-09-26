@@ -9,7 +9,7 @@ export type ControlAction =
   | "hello"
   | "renegotiate";
 
-export type FrameStyle = "none" | "gold" | "classic" | "minimal";
+export type FrameStyle = "none" | "booth" | "gold" | "minimal" | "classic";
 export type LayoutStyle = "strip" | "grid";
 
 export interface BoothSettings {
@@ -94,7 +94,7 @@ export const DEFAULT_SETTINGS: BoothSettings = {
   ringLightAlwaysOn: true,
   countdownSeconds: 3,
   photosPerRound: 3,
-  frameStyle: "gold",
+  frameStyle: "booth",
   layoutStyle: "strip",
   hasLogo: false,
 };

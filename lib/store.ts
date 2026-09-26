@@ -164,9 +164,18 @@ export async function getRoom(code: string) {
 
 export async function getSettings(code: string): Promise<BoothSettings> {
   const state = await getState();
+  const stored = state.settings[code] ?? {};
+  const rawFrame = (stored as { frameStyle?: string }).frameStyle;
+  const frameStyle =
+    rawFrame === "classic" || rawFrame === "booth"
+      ? "booth"
+      : rawFrame === "gold" || rawFrame === "minimal" || rawFrame === "none"
+        ? rawFrame
+        : DEFAULT_SETTINGS.frameStyle;
   return {
     ...DEFAULT_SETTINGS,
-    ...(state.settings[code] ?? {}),
+    ...stored,
+    frameStyle,
     hasLogo: Boolean(state.logos[code]),
   };
 }

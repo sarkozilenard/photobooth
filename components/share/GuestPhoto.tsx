@@ -4,8 +4,21 @@ import { useEffect, useState } from "react";
 
 function isIOS() {
   if (typeof navigator === "undefined") return false;
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
+function canShareFile(file: File) {
+  try {
+    return (
+      typeof navigator.canShare === "function" &&
+      navigator.canShare({ files: [file] })
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function GuestPhoto({
@@ -18,27 +31,16 @@ export function GuestPhoto({
   const [status, setStatus] = useState("A fotó mentése…");
 
   useEffect(() => {
+    if (isIOS()) {
+      setStatus("Koppints a képre → Mentés a Fotókba.");
+      return;
+    }
     let cancelled = false;
 
     async function save() {
       try {
         const res = await fetch(src);
         const blob = await res.blob();
-        const file = new File([blob], filename, { type: blob.type || "image/jpeg" });
-
-        if (isIOS()) {
-          if (navigator.share && navigator.canShare?.({ files: [file] })) {
-            if (!cancelled) {
-              setStatus("Koppints a képre, és válaszd: Mentés a Fotókba.");
-            }
-            return;
-          }
-          if (!cancelled) {
-            setStatus("Tartsd lenyomva a képet → Mentés a Fotókba.");
-          }
-          return;
-        }
-
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -62,12 +64,12 @@ export function GuestPhoto({
       const res = await fetch(src);
       const blob = await res.blob();
       const file = new File([blob], filename, { type: blob.type || "image/jpeg" });
-      if (navigator.share && navigator.canShare?.({ files: [file] })) {
+      if (canShareFile(file) && typeof navigator.share === "function") {
         await navigator.share({
           files: [file],
           title: "PHOTO BOOTH",
         });
-        setStatus("Kész. A Fotókban a Mentés a Fotókba után jelenik meg.");
+        setStatus("Kész.");
         return;
       }
       const url = URL.createObjectURL(blob);

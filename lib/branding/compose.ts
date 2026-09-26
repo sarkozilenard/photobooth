@@ -25,12 +25,41 @@ function canvasBlob(canvas: HTMLCanvasElement, quality: number) {
   });
 }
 
+function drawCover(
+  ctx: CanvasRenderingContext2D,
+  image: ImageBitmap,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const ir = image.width / Math.max(image.height, 1);
+  const r = w / Math.max(h, 1);
+  let sx = 0;
+  let sy = 0;
+  let sw = image.width;
+  let sh = image.height;
+  if (ir > r) {
+    sw = image.height * r;
+    sx = (image.width - sw) / 2;
+  } else {
+    sh = image.width / r;
+    sy = (image.height - sh) / 2;
+  }
+  ctx.drawImage(image, sx, sy, sw, sh, x, y, w, h);
+}
+
 function paintFrame(
   ctx: CanvasRenderingContext2D,
   width: number,
   height: number,
   style: FrameStyle,
 ) {
+  if (style === "booth" || style === "classic") {
+    ctx.fillStyle = "#f7f4ef";
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
   if (style === "gold") {
     ctx.fillStyle = "#c4a35a";
     ctx.fillRect(0, 0, width, height);
@@ -39,11 +68,6 @@ function paintFrame(
     ctx.strokeStyle = "#e8d5a3";
     ctx.lineWidth = 2;
     ctx.strokeRect(26, 26, width - 52, height - 52);
-    return;
-  }
-  if (style === "classic") {
-    ctx.fillStyle = "#f4efe4";
-    ctx.fillRect(0, 0, width, height);
     return;
   }
   if (style === "minimal") {
@@ -58,17 +82,87 @@ function paintFrame(
   ctx.fillRect(0, 0, width, height);
 }
 
+function isBoothStrip(style: FrameStyle) {
+  return style === "booth" || style === "classic";
+}
+
 export async function composeSession(
   shots: Blob[],
   settings: BoothSettings,
   logo?: ImageBitmap | null,
 ) {
   const images = await Promise.all(shots.map(blobToImage));
+  const style = settings.frameStyle;
+  const caption = settings.eventCaption.trim();
+
+  if (style === "none") {
+    const contentW = 900;
+    const gap = 8;
+    const heights = images.map((image) =>
+      Math.round(contentW * (image.height / Math.max(image.width, 1))),
+    );
+    const width = contentW;
+    const height =
+      heights.reduce((sum, value) => sum + value, 0) + gap * Math.max(images.length - 1, 0);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Nincs canvas");
+    ctx.fillStyle = "#000000";
+    ctx.fillRect(0, 0, width, height);
+    let y = 0;
+    for (let i = 0; i < images.length; i += 1) {
+      ctx.drawImage(images[i], 0, y, contentW, heights[i]);
+      y += heights[i] + gap;
+      images[i].close();
+    }
+    logo?.close();
+    return canvasBlob(canvas, Math.min(settings.jpegQuality, 0.88));
+  }
+
+  if (isBoothStrip(style)) {
+    const photoW = 620;
+    const photoH = 620;
+    const side = 28;
+    const gap = 22;
+    const footer = caption || logo ? 88 : 36;
+    const width = photoW + side * 2;
+    const height = side + images.length * photoH + (images.length - 1) * gap + footer;
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Nincs canvas");
+    paintFrame(ctx, width, height, "booth");
+    let y = side;
+    for (let i = 0; i < images.length; i += 1) {
+      drawCover(ctx, images[i], side, y, photoW, photoH);
+      y += photoH + gap;
+      images[i].close();
+    }
+    ctx.fillStyle = "#3f3a34";
+    ctx.textAlign = "center";
+    if (logo) {
+      const maxH = 36;
+      const maxW = 220;
+      const scale = Math.min(maxH / logo.height, maxW / logo.width, 1);
+      const w = logo.width * scale;
+      const h = logo.height * scale;
+      ctx.drawImage(logo, (width - w) / 2, height - footer + 12, w, h);
+      logo.close();
+    } else if (caption) {
+      ctx.font = "500 22px 'Playfair Display', serif";
+      ctx.fillText(caption, width / 2, height - 28, photoW);
+    }
+    return canvasBlob(canvas, Math.min(settings.jpegQuality, 0.88));
+  }
+
   const contentW = 900;
   const gap = 18;
   const header = logo ? 200 : 132;
-  const footer = settings.eventCaption.trim() ? 96 : 68;
-  const side = settings.frameStyle === "none" ? 32 : 52;
+  const footer = caption ? 96 : 68;
+  const side = 52;
   const grid = (settings.layoutStyle ?? "strip") === "grid" && images.length > 1;
   const cols = 2;
   const cellW = grid ? Math.round((contentW - gap) / 2) : contentW;
@@ -97,14 +191,12 @@ export async function composeSession(
   }
   const width = contentW + side * 2;
   const height = side * 2 + header + footer + photosBlock;
-
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Nincs canvas");
-
-  paintFrame(ctx, width, height, settings.frameStyle);
+  paintFrame(ctx, width, height, style);
 
   ctx.textAlign = "center";
   let titleY = side + 78;
@@ -119,11 +211,10 @@ export async function composeSession(
     logo.close();
   }
 
-  ctx.fillStyle = settings.frameStyle === "classic" ? "#1a1714" : "#e8d5a3";
+  ctx.fillStyle = "#e8d5a3";
   ctx.font = "600 52px 'Playfair Display', serif";
   ctx.fillText(settings.name || "PHOTO BOOTH", width / 2, titleY, contentW);
-
-  ctx.fillStyle = settings.frameStyle === "classic" ? "#6b6258" : "rgba(255,255,255,0.45)";
+  ctx.fillStyle = "rgba(255,255,255,0.45)";
   ctx.font = "500 22px Inter, sans-serif";
   ctx.fillText(
     shots.length > 1 ? `${shots.length} FOTÓ` : "FOTÓ",
@@ -155,10 +246,10 @@ export async function composeSession(
     }
   }
 
-  if (settings.eventCaption.trim()) {
-    ctx.fillStyle = settings.frameStyle === "classic" ? "#3f3a34" : "#f3e6c4";
+  if (caption) {
+    ctx.fillStyle = "#f3e6c4";
     ctx.font = "500 28px Inter, sans-serif";
-    ctx.fillText(settings.eventCaption.trim(), width / 2, height - side - 36, contentW);
+    ctx.fillText(caption, width / 2, height - side - 36, contentW);
   }
 
   return canvasBlob(canvas, Math.min(settings.jpegQuality, 0.84));

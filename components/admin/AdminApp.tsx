@@ -259,10 +259,10 @@ export function AdminApp() {
                 }
                 className="min-h-11 rounded-xl border border-white/10 bg-black px-3"
               >
-                <option value="gold">Arany</option>
-                <option value="classic">Polaroid</option>
-                <option value="minimal">Minimal</option>
+                <option value="booth">Booth csík</option>
                 <option value="none">Nincs keret</option>
+                <option value="gold">Arany</option>
+                <option value="minimal">Minimal</option>
               </select>
             </label>
             <label className="flex flex-col gap-2 text-sm">

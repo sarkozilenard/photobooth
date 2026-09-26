@@ -1,8 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { KioskButton } from "@/components/ui/KioskButton";
 import { PhotoRecord } from "@/lib/types";
+
+async function makeQr(record: PhotoRecord) {
+  const url = `${window.location.origin}/p/${record.id}?t=${record.token}`;
+  const qr = await QRCode.toDataURL(url, {
+    margin: 1,
+    width: 512,
+    color: { dark: "#111111", light: "#ffffff" },
+  });
+  return { url, qr };
+}
 
 export function ShareSheet({
   photo,
@@ -51,19 +62,14 @@ export function ShareSheet({
         if (!cancelled) setStatus("A fotó még nem elérhető.");
         return;
       }
-      const res = await fetch(`/api/share/qr?photoId=${record.id}`);
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.qr) {
+      try {
+        const made = await makeQr(record);
         if (!cancelled) {
-          setStatus(
-            typeof data.error === "string" ? data.error : "A QR-kód nem készült el.",
-          );
+          setQr(made.qr);
+          setStatus("");
         }
-        return;
-      }
-      if (!cancelled) {
-        setQr(data.qr);
-        setStatus("");
+      } catch {
+        if (!cancelled) setStatus("A QR-kód nem készült el.");
       }
     }
 

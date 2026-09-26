@@ -33,7 +33,7 @@ export function BoothApp({
   const [look, setLook] = useState<BoothLook>(DEFAULT_LOOK);
   const [photosPerRound, setPhotosPerRound] = useState(3);
   const [layoutStyle, setLayoutStyle] = useState<LayoutStyle>("strip");
-  const [frameStyle, setFrameStyle] = useState<FrameStyle>("gold");
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>("booth");
   const [countdownSeconds, setCountdownSeconds] = useState(3);
   const [soundsEnabled, setSoundsEnabled] = useState(true);
   const [flashEnabled, setFlashEnabled] = useState(true);
@@ -64,7 +64,11 @@ export function BoothApp({
       guestSeeded.current = true;
       setPhotosPerRound(data.settings.photosPerRound ?? 3);
       setLayoutStyle(data.settings.layoutStyle ?? "strip");
-      setFrameStyle(data.settings.frameStyle ?? "gold");
+      setFrameStyle(
+        data.settings.frameStyle === "classic"
+          ? "booth"
+          : (data.settings.frameStyle ?? "booth"),
+      );
       setCountdownSeconds(data.settings.countdownSeconds ?? 3);
       setSoundsEnabled(data.settings.soundsEnabled ?? true);
       setFlashEnabled(data.settings.flashEnabled ?? true);
@@ -592,10 +596,10 @@ export function BoothApp({
                     })
                   }
                 >
-                  <option value="gold">Arany</option>
-                  <option value="classic">Polaroid</option>
-                  <option value="minimal">Minimal</option>
+                  <option value="booth">Booth csík</option>
                   <option value="none">Nincs keret</option>
+                  <option value="gold">Arany</option>
+                  <option value="minimal">Minimal</option>
                 </select>
               </label>
             </div>

@@ -1,6 +1,6 @@
 import { FrameStyle } from "@/lib/types";
 
-export type LookOverlay = "none" | "vignette" | "scanlines" | "gold";
+export type LookOverlay = "none" | "vignette" | "grain" | "paper";
 
 export interface BoothLook {
   id: string;
@@ -8,73 +8,64 @@ export interface BoothLook {
   hint: string;
   filter: string;
   overlay: LookOverlay;
-  frameStyle?: FrameStyle;
 }
 
 export const BOOTH_LOOKS: BoothLook[] = [
   {
+    id: "booth",
+    label: "Booth",
+    hint: "Klasszikus automata",
+    filter: "grayscale(1) contrast(1.42) brightness(1.06) saturate(0)",
+    overlay: "grain",
+  },
+  {
+    id: "sepia",
+    label: "Sepia",
+    hint: "Meleg film",
+    filter: "sepia(0.7) contrast(1.28) brightness(1.08) saturate(0.55)",
+    overlay: "paper",
+  },
+  {
+    id: "softbw",
+    label: "Portré",
+    hint: "Puha fekete-fehér",
+    filter: "grayscale(1) contrast(1.12) brightness(1.1)",
+    overlay: "vignette",
+  },
+  {
     id: "original",
-    label: "Eredeti",
+    label: "Színes",
     hint: "Tiszta kép",
     filter: "none",
     overlay: "none",
-    frameStyle: "gold",
-  },
-  {
-    id: "noir",
-    label: "Noir",
-    hint: "Fekete-fehér",
-    filter: "grayscale(1) contrast(1.18) brightness(1.02)",
-    overlay: "vignette",
-    frameStyle: "minimal",
-  },
-  {
-    id: "vintage",
-    label: "Vintage",
-    hint: "Film",
-    filter: "sepia(0.42) contrast(1.08) saturate(0.82) brightness(1.04)",
-    overlay: "vignette",
-    frameStyle: "classic",
-  },
-  {
-    id: "gold",
-    label: "Arany",
-    hint: "Meleg",
-    filter: "sepia(0.22) saturate(1.25) contrast(1.06) hue-rotate(-12deg)",
-    overlay: "gold",
-    frameStyle: "gold",
   },
   {
     id: "pop",
     label: "Pop",
     hint: "Kontraszt",
-    filter: "contrast(1.28) saturate(1.45) brightness(1.04)",
+    filter: "contrast(1.28) saturate(1.4) brightness(1.04)",
     overlay: "none",
-    frameStyle: "minimal",
   },
   {
     id: "cool",
     label: "Cool",
     hint: "Kék",
-    filter: "saturate(0.88) hue-rotate(18deg) contrast(1.08) brightness(1.06)",
+    filter: "saturate(0.88) hue-rotate(16deg) contrast(1.08) brightness(1.05)",
     overlay: "none",
-    frameStyle: "none",
   },
   {
     id: "glam",
     label: "Glam",
     hint: "Puha",
-    filter: "brightness(1.12) contrast(0.92) saturate(0.95) blur(0.35px)",
-    overlay: "gold",
-    frameStyle: "gold",
+    filter: "brightness(1.12) contrast(0.92) saturate(0.95)",
+    overlay: "vignette",
   },
   {
     id: "neon",
     label: "Neon",
     hint: "Parti",
-    filter: "saturate(1.7) contrast(1.22) hue-rotate(-18deg) brightness(1.05)",
-    overlay: "scanlines",
-    frameStyle: "minimal",
+    filter: "saturate(1.65) contrast(1.2) hue-rotate(-16deg)",
+    overlay: "none",
   },
   {
     id: "xray",
@@ -82,7 +73,6 @@ export const BOOTH_LOOKS: BoothLook[] = [
     hint: "Fun",
     filter: "invert(1) hue-rotate(180deg) contrast(1.15)",
     overlay: "none",
-    frameStyle: "none",
   },
 ];
 
@@ -92,6 +82,31 @@ export function getLook(id: string | undefined) {
   return BOOTH_LOOKS.find((look) => look.id === id) ?? DEFAULT_LOOK;
 }
 
+function paintGrain(ctx: CanvasRenderingContext2D, width: number, height: number, alpha: number) {
+  const tile = 96;
+  const noise = document.createElement("canvas");
+  noise.width = tile;
+  noise.height = tile;
+  const nctx = noise.getContext("2d");
+  if (!nctx) return;
+  const data = nctx.createImageData(tile, tile);
+  for (let i = 0; i < data.data.length; i += 4) {
+    const v = 80 + Math.random() * 100;
+    data.data[i] = v;
+    data.data[i + 1] = v;
+    data.data[i + 2] = v;
+    data.data[i + 3] = Math.round(alpha * 255);
+  }
+  nctx.putImageData(data, 0, 0);
+  const pattern = ctx.createPattern(noise, "repeat");
+  if (!pattern) return;
+  ctx.save();
+  ctx.globalCompositeOperation = "overlay";
+  ctx.fillStyle = pattern;
+  ctx.fillRect(0, 0, width, height);
+  ctx.restore();
+}
+
 export function paintLookOverlay(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -99,27 +114,38 @@ export function paintLookOverlay(
   overlay: LookOverlay,
 ) {
   if (overlay === "none") return;
-  if (overlay === "vignette" || overlay === "gold") {
+  if (overlay === "grain") {
+    paintGrain(ctx, width, height, 0.18);
     const glow = ctx.createRadialGradient(
       width / 2,
       height / 2,
-      Math.min(width, height) * 0.22,
+      Math.min(width, height) * 0.3,
       width / 2,
       height / 2,
-      Math.max(width, height) * 0.72,
+      Math.max(width, height) * 0.7,
     );
     glow.addColorStop(0, "rgba(0,0,0,0)");
-    glow.addColorStop(
-      1,
-      overlay === "gold" ? "rgba(70, 42, 8, 0.38)" : "rgba(0,0,0,0.5)",
-    );
+    glow.addColorStop(1, "rgba(0,0,0,0.28)");
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, width, height);
     return;
   }
-  ctx.fillStyle = "rgba(0, 0, 0, 0.12)";
-  const step = Math.max(4, Math.round(height / 90));
-  for (let y = 0; y < height; y += step) {
-    ctx.fillRect(0, y, width, 1);
+  if (overlay === "paper") {
+    paintGrain(ctx, width, height, 0.12);
+    ctx.fillStyle = "rgba(214, 186, 140, 0.14)";
+    ctx.fillRect(0, 0, width, height);
+    return;
   }
+  const glow = ctx.createRadialGradient(
+    width / 2,
+    height / 2,
+    Math.min(width, height) * 0.22,
+    width / 2,
+    height / 2,
+    Math.max(width, height) * 0.72,
+  );
+  glow.addColorStop(0, "rgba(0,0,0,0)");
+  glow.addColorStop(1, "rgba(0,0,0,0.5)");
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, width, height);
 }

@@ -35,14 +35,22 @@ function ExperienceArt({ preset }: { preset: ExperiencePreset }) {
 }
 
 function FrameArt({ frame }: { frame: FramePreset }) {
+  if (frame.id === "booth" || frame.id === "classic") {
+    return (
+      <div className="flex h-16 w-9 flex-col gap-[3px] bg-[#f7f4ef] p-[3px]">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="min-h-0 flex-1 bg-neutral-500/50" />
+        ))}
+      </div>
+    );
+  }
+  if (frame.id === "none") {
+    return <div className="h-16 w-10 bg-white/25" />;
+  }
   const box =
     frame.id === "gold"
       ? "bg-[#c4a35a] p-1"
-      : frame.id === "classic"
-        ? "bg-[#f4efe4] p-1.5"
-        : frame.id === "minimal"
-          ? "border-2 border-white bg-black p-1"
-          : "bg-white/10 p-0";
+      : "border-2 border-white bg-black p-1";
   return (
     <div className={`h-16 w-12 ${box}`}>
       <div className="h-full w-full bg-white/25" />
@@ -81,7 +89,7 @@ export function GuestChooser({
         <p className="mb-2 text-[11px] tracking-[0.28em] text-[#c4a35a] uppercase">
           Élmény
         </p>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {EXPERIENCES.map((preset) => {
             const selected = preset.photos === photos && preset.layout === layout;
             return (
