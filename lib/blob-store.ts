@@ -1,18 +1,56 @@
-import { put as blobPut } from "@vercel/blob";
+import {
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
-function storeIdFromToken() {
-  const token = process.env.BLOB_READ_WRITE_TOKEN || "";
-  const [, , , id = ""] = token.split("_");
-  return id;
+export function r2Enabled() {
+  return Boolean(
+    process.env.R2_ACCOUNT_ID &&
+      process.env.R2_ACCESS_KEY_ID &&
+      process.env.R2_SECRET_ACCESS_KEY &&
+      process.env.R2_BUCKET_NAME,
+  );
+}
+
+function r2Bucket() {
+  return process.env.R2_BUCKET_NAME || "";
+}
+
+function r2Endpoint() {
+  const custom = process.env.R2_ENDPOINT?.replace(/\/$/, "");
+  if (custom) return custom;
+  const accountId = process.env.R2_ACCOUNT_ID;
+  if (!accountId) return "";
+  return `https://${accountId}.r2.cloudflarestorage.com`;
+}
+
+let client: S3Client | null = null;
+
+function s3() {
+  if (!r2Enabled()) {
+    throw new Error("Cloudflare R2 nincs beállítva (R2_ACCOUNT_ID, kulcsok, R2_BUCKET_NAME).");
+  }
+  if (!client) {
+    client = new S3Client({
+      region: "auto",
+      endpoint: r2Endpoint(),
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID as string,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY as string,
+      },
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
+    });
+  }
+  return client;
 }
 
 export function blobPublicUrl(pathname: string) {
-  const envBase = process.env.BLOB_PUBLIC_BASE_URL?.replace(/\/$/, "");
-  if (envBase) return `${envBase}/${pathname}`;
-  const storeId = storeIdFromToken();
-  if (!storeId) return null;
-  const access = process.env.BLOB_ACCESS === "private" ? "private" : "public";
-  return `https://${storeId}.${access}.blob.vercel-storage.com/${pathname}`;
+  const key = pathname.replace(/^\//, "");
+  const envBase = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  if (envBase) return `${envBase}/${key}`;
+  return null;
 }
 
 export async function putBoothBlob(
@@ -20,55 +58,86 @@ export async function putBoothBlob(
   body: Buffer | string,
   contentType: string,
 ) {
-  const order: Array<"public" | "private"> =
-    process.env.BLOB_ACCESS === "private" ? ["private", "public"] : ["public", "private"];
-  let last: unknown;
-  for (const access of order) {
-    try {
-      return await blobPut(pathname, body, {
-        access,
-        addRandomSuffix: false,
-        allowOverwrite: true,
-        contentType,
-      });
-    } catch (error) {
-      last = error;
-      const msg = error instanceof Error ? error.message : String(error);
-      if (
-        /private access on a public store|public access on a private store/i.test(
-          msg,
-        )
-      ) {
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw last instanceof Error ? last : new Error("Blob feltöltés sikertelen");
+  const key = pathname.replace(/^\//, "");
+  const bytes = typeof body === "string" ? Buffer.from(body) : body;
+  await s3().send(
+    new PutObjectCommand({
+      Bucket: r2Bucket(),
+      Key: key,
+      Body: bytes,
+      ContentType: contentType,
+      CacheControl: contentType.startsWith("image/")
+        ? "public, max-age=31536000"
+        : "no-cache",
+    }),
+  );
+  const url = blobPublicUrl(key);
+  return { url: url || `r2://${r2Bucket()}/${key}` };
 }
 
 export async function fetchBoothJson<T>(pathname: string): Promise<T | null> {
-  const url = blobPublicUrl(pathname);
-  if (!url) return null;
+  const file = await fetchBoothFile(pathname);
+  if (!file?.stream) return null;
   try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
+    return (await new Response(file.stream).json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+async function getFromR2(key: string) {
+  try {
+    const out = await s3().send(
+      new GetObjectCommand({
+        Bucket: r2Bucket(),
+        Key: key,
+      }),
+    );
+    if (!out.Body) return null;
+    const bytes = await out.Body.transformToByteArray();
+    return {
+      stream: new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes);
+          controller.close();
+        },
+      }),
+      contentType: out.ContentType || null,
+    };
   } catch {
     return null;
   }
 }
 
 export async function fetchBoothFile(urlOrPath: string) {
-  const url = urlOrPath.startsWith("http")
-    ? urlOrPath
-    : blobPublicUrl(urlOrPath);
-  if (!url) return null;
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok || !res.body) return null;
-    return { stream: res.body, contentType: res.headers.get("content-type") };
-  } catch {
+  if (urlOrPath.startsWith("http")) {
+    try {
+      const res = await fetch(urlOrPath, { cache: "no-store" });
+      if (res.ok && res.body) {
+        return { stream: res.body, contentType: res.headers.get("content-type") };
+      }
+    } catch {
+      /* GetObject fallback */
+    }
+    const base = process.env.R2_PUBLIC_BASE_URL?.replace(/\/$/, "");
+    if (base && urlOrPath.startsWith(base)) {
+      const key = urlOrPath.slice(base.length).replace(/^\//, "");
+      if (r2Enabled()) return getFromR2(key);
+    }
     return null;
   }
+  const key = urlOrPath.replace(/^\//, "");
+  const publicUrl = blobPublicUrl(key);
+  if (publicUrl) {
+    try {
+      const res = await fetch(publicUrl, { cache: "no-store" });
+      if (res.ok && res.body) {
+        return { stream: res.body, contentType: res.headers.get("content-type") };
+      }
+    } catch {
+      /* GetObject fallback */
+    }
+  }
+  if (!r2Enabled()) return null;
+  return getFromR2(key);
 }

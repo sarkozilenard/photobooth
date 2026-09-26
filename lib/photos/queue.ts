@@ -68,21 +68,51 @@ function isAppleTouch() {
   );
 }
 
-export function saveToDevice(blob: Blob, filename: string) {
-  const name = filename.toLowerCase().endsWith(".jpg") ? filename : `${filename}.jpg`;
-  const packed = isAppleTouch()
-    ? new Blob([blob], { type: "application/octet-stream" })
-    : new Blob([blob], { type: blob.type || "image/jpeg" });
-  const url = URL.createObjectURL(packed);
+function clickDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = name;
+  link.download = filename;
   link.rel = "noopener";
   link.style.display = "none";
   document.body.appendChild(link);
   link.click();
   link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 4000);
+  window.setTimeout(() => URL.revokeObjectURL(url), 8000);
+}
+
+async function writeOpfs(blob: Blob, filename: string) {
+  const storage = navigator.storage as unknown as {
+    getDirectory?: () => Promise<FileSystemDirectoryHandle>;
+  };
+  if (typeof storage.getDirectory !== "function") return;
+  const root = await storage.getDirectory();
+  const dir = await root.getDirectoryHandle("photobooth", { create: true });
+  const file = await dir.getFileHandle(filename, { create: true });
+  const writable = await file.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+export async function saveAutomatically(blob: Blob, filename: string, code: string) {
+  const name = filename.toLowerCase().endsWith(".jpg") ? filename : `${filename}.jpg`;
+  await archiveOnIpad(code, blob);
+  try {
+    await writeOpfs(blob, name);
+  } catch {
+    /* OPFS nem mindig van */
+  }
+  clickDownload(new Blob([blob], { type: blob.type || "image/jpeg" }), name);
+  if (isAppleTouch()) {
+    window.setTimeout(() => {
+      clickDownload(new Blob([blob], { type: "application/octet-stream" }), name);
+    }, 120);
+  }
+}
+
+export function saveToDevice(blob: Blob, filename: string) {
+  const name = filename.toLowerCase().endsWith(".jpg") ? filename : `${filename}.jpg`;
+  clickDownload(new Blob([blob], { type: blob.type || "image/jpeg" }), name);
 }
 
 export function downloadBlob(blob: Blob, filename: string) {

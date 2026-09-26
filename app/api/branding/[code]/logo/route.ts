@@ -74,12 +74,9 @@ export async function POST(
     await saveLogo(roomCode, bytes, mime);
   } catch (error) {
     const detail = error instanceof Error ? error.message : "ismeretlen hiba";
-    const hobby = /hobby|usage limits|upgrade to pro/i.test(detail);
     return NextResponse.json(
       {
-        error: hobby
-          ? "A Blob store Hobby limitje betelt. Vercel → Storage → új Blob store → Connect, aztán Redeploy."
-          : `A logó mentése nem sikerült: ${detail}`,
+        error: `A logó mentése nem sikerült: ${detail}`,
       },
       { status: 503 },
     );

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { putBoothBlob, fetchBoothJson, fetchBoothFile, blobPublicUrl } from "./blob-store";
+import { putBoothBlob, fetchBoothJson, fetchBoothFile, blobPublicUrl, r2Enabled } from "./blob-store";
 import {
   AppState,
   BoothSettings,
@@ -50,7 +50,7 @@ async function withLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function useBlob() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  return r2Enabled();
 }
 
 function useFile() {
@@ -341,19 +341,19 @@ export async function storePhotoBytes(
   bytes: Buffer,
   mimeType: string,
 ): Promise<{ blobUrl?: string; localPath?: string }> {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (r2Enabled()) {
     try {
       const blob = await putBoothBlob(`photos/${id}.jpg`, bytes, mimeType);
       return { blobUrl: blob.url };
     } catch (error) {
       if (process.env.VERCEL === "1") {
-        const err = new Error("BLOB_REQUIRED");
+        const err = new Error("R2_REQUIRED");
         (err as Error & { cause?: unknown }).cause = error;
         throw err;
       }
     }
   } else if (process.env.VERCEL === "1") {
-    throw new Error("BLOB_REQUIRED");
+    throw new Error("R2_REQUIRED");
   }
   return { localPath: await writeLocalPhoto(id, bytes) };
 }

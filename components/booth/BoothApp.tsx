@@ -26,7 +26,7 @@ import { deleteLocalLogo, readLocalLogo, saveLocalLogo } from "@/lib/branding/lo
 import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
 import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
-import { archiveOnIpad, saveToDevice } from "@/lib/photos/queue";
+import { saveAutomatically } from "@/lib/photos/queue";
 
 type Phase = "attract" | "live" | "countdown" | "preview";
 
@@ -364,12 +364,12 @@ export function BoothApp({
   async function persistFinished(blob: Blob, toDevices = true) {
     peerRef.current?.setShareFile?.(blob);
     if (toDevices) {
-      saveToDevice(blob, `photobooth-${code}-${Date.now()}.jpg`);
-      void archiveOnIpad(code, blob);
+      const filename = `photobooth-${code}-${Date.now()}.jpg`;
+      void saveAutomatically(blob, filename, code);
       void peerRef.current?.sendPhotoFile(blob, { action: "photo-ready" });
       setSavedToast({
         title: "Mentve az iPadre",
-        detail: "A fotó a Letöltésekbe / Fájlokba került.",
+        detail: "Automatikus mentés, gomb nélkül.",
       });
       try {
         navigator.vibrate?.(40);
@@ -720,12 +720,7 @@ export function BoothApp({
             <KioskButton
               className="min-h-14 min-w-0 flex-1"
               variant="gold"
-              onClick={() => {
-                if (localFile) {
-                  saveToDevice(localFile, `photobooth-${code}-${Date.now()}.jpg`);
-                }
-                setShareOpen(true);
-              }}
+              onClick={() => setShareOpen(true)}
             >
               QR-kód
             </KioskButton>

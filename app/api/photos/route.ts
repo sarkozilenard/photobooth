@@ -14,8 +14,8 @@ import { PhotoRecord } from "@/lib/types";
 export const maxDuration = 60;
 export const runtime = "nodejs";
 
-const BLOB_HELP =
-  "A QR-kódos feltöltéshez Vercel Blob kell. Vercel Dashboard → Storage → Create Blob Store → Connect to this project. Utána újra deploy. Helyben (npm run dev) Blob nélkül is megy.";
+const R2_HELP =
+  "A QR-kódos feltöltéshez Cloudflare R2 kell. Cloudflare → R2 → bucket + API token, majd Vercel env: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL. Helyben (npm run dev) R2 nélkül is megy.";
 
 function isFileBlob(value: FormDataEntryValue | null): value is File {
   return Boolean(
@@ -91,11 +91,13 @@ export async function POST(request: NextRequest) {
             ? error.message
             : "";
       const missingToken =
-        !process.env.BLOB_READ_WRITE_TOKEN ||
-        /BLOB_REQUIRED|token|unauthorized|403|401/i.test(detail);
+        !process.env.R2_ACCOUNT_ID ||
+        !process.env.R2_ACCESS_KEY_ID ||
+        !process.env.R2_BUCKET_NAME ||
+        /R2_REQUIRED|BLOB_REQUIRED|token|unauthorized|403|401/i.test(detail);
       const message = missingToken
-        ? "A Blob store nincs csatolva, vagy nincs BLOB_READ_WRITE_TOKEN. Vercel → Storage → Blob → Connect to project, aztán Redeploy."
-        : BLOB_HELP;
+        ? "Cloudflare R2 nincs beállítva. Vercel → Environment Variables: R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME, R2_PUBLIC_BASE_URL, aztán Redeploy."
+        : R2_HELP;
       return NextResponse.json({ error: message, detail }, { status: 503 });
     }
 
