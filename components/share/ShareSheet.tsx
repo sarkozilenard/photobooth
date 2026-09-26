@@ -38,49 +38,38 @@ export function ShareSheet({
 
     async function prepare() {
       setQr(null);
-      setStatus("QR készítése…");
-      if (!photo && !file) {
-        if (!cancelled) setStatus("Előbb készíts fotót, aztán nyisd meg a QR-t.");
-        return;
-      }
+      setStatus("Feltöltés a felhőbe…");
       const origin = window.location.origin;
-      const boothUrl = `${origin}/s/${roomCode}`;
       try {
-        if (photo) {
-          const image = await makeQr(`${origin}/p/${photo.id}?t=${photo.token}`);
-          if (!cancelled) {
-            setQr(image);
-            setStatus("Olvasd be a telefonoddal. A fotó az iPadre is mentve.");
-          }
+        let record = photo;
+        if (!record && file) {
+          record = await uploadFinishedPhoto({
+            file,
+            roomCode,
+            captureId,
+            photoId: photo?.id,
+            token: photo?.token,
+          });
+          if (cancelled) return;
+          onPhoto?.(record);
+        }
+        if (!record) {
+          if (!cancelled) setStatus("Előbb készíts fotót. A QR a felhős linkre mutat.");
           return;
         }
-        const image = await makeQr(boothUrl);
+        const image = await makeQr(`${origin}/p/${record.id}?t=${record.token}`);
         if (!cancelled) {
           setQr(image);
+          setStatus("Olvasd be. A link a Cloudflare tárhelyre megy, később is működik.");
+        }
+      } catch (error) {
+        if (!cancelled) {
           setStatus(
-            "Olvasd be a QR-t. Az iPad maradjon nyitva, amíg a telefon lekéri a fotót.",
+            error instanceof Error
+              ? error.message
+              : "A felhőbe feltöltés nem sikerült, ezért nincs tartós QR.",
           );
         }
-        if (file) {
-          try {
-            const record = await uploadFinishedPhoto({
-              file,
-              roomCode,
-              captureId,
-            });
-            if (cancelled) return;
-            onPhoto?.(record);
-            const cloud = await makeQr(`${origin}/p/${record.id}?t=${record.token}`);
-            if (!cancelled) {
-              setQr(cloud);
-              setStatus("Olvasd be a telefonoddal. A fotó az iPadre is mentve.");
-            }
-          } catch {
-            /* a booth QR Blob nélkül is megy */
-          }
-        }
-      } catch {
-        if (!cancelled) setStatus("A QR-kód nem készült el.");
       }
     }
 

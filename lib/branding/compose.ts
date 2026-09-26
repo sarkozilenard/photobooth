@@ -69,18 +69,18 @@ function canvasBlob(canvas: HTMLCanvasElement, quality: number) {
 type Cell = { x: number; y: number; w: number; h: number };
 
 function framePad(style: FrameStyle) {
-  if (style === "none") return { side: 0, gap: 6, gold: 0 };
-  if (style === "gold") return { side: 22, gap: 10, gold: 10 };
-  if (style === "minimal") return { side: 16, gap: 8, gold: 0 };
-  return { side: 36, gap: 16, gold: 0 };
+  if (style === "minimal") return { side: 28, gap: 10, border: 0 };
+  return { side: 42, gap: 14, border: 16 };
 }
 
 function bottomPad(style: FrameStyle, caption: string, logo?: ImageBitmap | null) {
   const branded = Boolean(caption || logo);
-  if (style === "booth" || style === "classic") return branded ? 76 : 44;
-  if (style === "none") return 0;
-  return branded ? 64 : 18;
+  if (style === "minimal") return branded ? 100 : 28;
+  return branded ? 128 : 56;
 }
+
+const BLUE = "#1a4c96";
+const PAPER = "#f7f8fa";
 
 function paintBackdrop(
   ctx: CanvasRenderingContext2D,
@@ -88,20 +88,53 @@ function paintBackdrop(
   height: number,
   style: FrameStyle,
 ) {
-  if (style === "booth" || style === "classic") {
-    ctx.fillStyle = "#f4efe8";
-    ctx.fillRect(0, 0, width, height);
-    return;
-  }
-  if (style === "gold") {
-    ctx.fillStyle = "#c4a35a";
-    ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = "#0c0c0c";
-    ctx.fillRect(10, 10, width - 20, height - 20);
-    return;
-  }
-  ctx.fillStyle = "#000000";
+  ctx.fillStyle = style === "minimal" ? "#111111" : PAPER;
   ctx.fillRect(0, 0, width, height);
+}
+
+function drawFooter(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  footer: number,
+  inset: number,
+  logo: ImageBitmap | null | undefined,
+  caption: string,
+  mark: string,
+  light: boolean,
+) {
+  if (footer <= 0) return;
+  const midY = height - footer / 2;
+  const color = light ? BLUE : "#f4f4f4";
+  ctx.fillStyle = color;
+
+  let logoRight = inset;
+  if (logo) {
+    const maxH = Math.min(92, footer - 24);
+    const maxW = width * 0.34;
+    const scale = Math.min(maxH / logo.height, maxW / logo.width);
+    const w = Math.max(1, logo.width * scale);
+    const h = Math.max(1, logo.height * scale);
+    ctx.drawImage(logo, inset, midY - h / 2, w, h);
+    logoRight = inset + w + 20;
+    logo.close();
+  }
+
+  const rightReserve = mark ? width * 0.22 : inset;
+  if (caption) {
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "600 34px Inter, system-ui, sans-serif";
+    const maxCaption = Math.max(120, width - logoRight - rightReserve - 16);
+    ctx.fillText(caption, width / 2, midY, maxCaption);
+  }
+
+  if (mark) {
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.font = "700 16px Inter, system-ui, sans-serif";
+    ctx.fillText(mark.toUpperCase(), width - inset, midY, width * 0.28);
+  }
 }
 
 function drawShot(
@@ -179,7 +212,7 @@ export async function composeSession(
   const pad = framePad(style);
   const footer = bottomPad(style, caption, logo);
   const innerW = 900;
-  const origin = pad.gold + pad.side;
+  const origin = pad.side;
   const ratio = images[0].height / Math.max(images[0].width, 1);
   const { cells, blockH } = buildCells(images.length, layout, innerW, pad.gap, ratio);
 
@@ -192,6 +225,19 @@ export async function composeSession(
   if (!ctx) throw new Error("Nincs canvas");
   paintBackdrop(ctx, width, height, style);
 
+  const light = style !== "minimal";
+  if (light && pad.border > 0) {
+    ctx.fillStyle = BLUE;
+    ctx.fillRect(
+      origin - pad.border,
+      origin - pad.border,
+      innerW + pad.border * 2,
+      blockH + pad.border * 2,
+    );
+    ctx.fillStyle = PAPER;
+    ctx.fillRect(origin - 4, origin - 4, innerW + 8, blockH + 8);
+  }
+
   for (let i = 0; i < images.length; i += 1) {
     drawShot(ctx, images[i], {
       x: origin + cells[i].x,
@@ -202,21 +248,8 @@ export async function composeSession(
   }
   images.forEach((image) => image.close());
 
-  if (logo) {
-    const maxH = 28;
-    const maxW = 220;
-    const scale = Math.min(maxH / logo.height, maxW / logo.width, 1);
-    const w = logo.width * scale;
-    const h = logo.height * scale;
-    ctx.drawImage(logo, (width - w) / 2, height - footer + (footer - h) / 2, w, h);
-    logo.close();
-  } else if (caption && footer > 0) {
-    ctx.fillStyle = style === "booth" || style === "classic" ? "#3f3a34" : "#f3e6c4";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = "500 22px 'Playfair Display', serif";
-    ctx.fillText(caption, width / 2, height - footer / 2, innerW);
-  }
+  const mark = settings.name.trim() && settings.name.trim() !== "PHOTO BOOTH" ? settings.name.trim() : "";
+  drawFooter(ctx, width, height, footer, origin, logo, caption, mark, light);
 
   return canvasBlob(canvas, Math.min(settings.jpegQuality, 0.88));
 }

@@ -10,7 +10,6 @@ import {
 import { countdownEndsAt, runSyncedCountdown } from "@/lib/booth/sync-countdown";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings } from "@/lib/types";
-import { saveToDevice } from "@/lib/photos/queue";
 import { ControlPayload, LiveLink, startCameraLive } from "@/lib/webrtc/live";
 
 export function CameraApp({ code }: { code: string }) {
@@ -106,10 +105,6 @@ export function CameraApp({ code }: { code: string }) {
           onControl: (msg) => {
             void handleControl(msg);
           },
-          onFinished: (blob) => {
-            saveToDevice(blob, `photobooth-${code}-${Date.now()}.jpg`);
-            setStatus("Fotó mentve a telefonra");
-          },
         });
         peerRef.current = peer;
       } catch (linkError) {
@@ -148,7 +143,7 @@ export function CameraApp({ code }: { code: string }) {
       />
       {count ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
-          <span className="font-serif text-[28vh] leading-none tabular-nums drop-shadow-[0_0_48px_rgba(196,163,90,0.35)]">
+          <span className="font-serif text-[28vh] leading-none tabular-nums drop-shadow-[0_0_48px_rgba(26,76,150,0.45)]">
             {count}
           </span>
         </div>

@@ -21,6 +21,9 @@ export default async function PhotoPage({
       </div>
     );
   }
-  const src = `/api/photos/${photo.id}/file?t=${photo.token}`;
+  const src =
+    photo.blobUrl && photo.blobUrl.startsWith("http")
+      ? photo.blobUrl
+      : `/api/photos/${photo.id}/file?t=${photo.token}`;
   return <GuestPhoto src={src} filename={`photobooth-${photo.id}.jpg`} />;
 }

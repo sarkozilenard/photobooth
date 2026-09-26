@@ -22,7 +22,6 @@ export function GuestChooser({
   countdown,
   aspectId,
   aspectRatio,
-  poster,
   onExperience,
   onLayout,
   onFrame,
@@ -35,7 +34,6 @@ export function GuestChooser({
   countdown: number;
   aspectId: string;
   aspectRatio: number | null;
-  poster?: string;
   dense?: boolean;
   onExperience: (preset: ExperiencePreset) => void;
   onLayout: (layout: LayoutStyle) => void;
@@ -73,7 +71,6 @@ export function GuestChooser({
                 photos={photos}
                 layout={preset.id}
                 frame={frame}
-                poster={poster}
                 aspectRatio={aspectRatio}
                 active={preset.id === layout}
                 onClick={() => onLayout(preset.id)}

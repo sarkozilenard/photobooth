@@ -24,10 +24,8 @@ export interface FramePreset {
 }
 
 export const FRAMES: FramePreset[] = [
-  { id: "booth", label: "Booth csík", hint: "Fehér automata" },
-  { id: "none", label: "Nincs keret", hint: "Csak a fotó" },
-  { id: "gold", label: "Arany", hint: "Gála" },
-  { id: "minimal", label: "Minimal", hint: "Fekete" },
+  { id: "booth", label: "Kék keret", hint: "Fehér lap, kék keret" },
+  { id: "minimal", label: "Fekete", hint: "Sötét keret" },
 ];
 
 export const COUNTDOWNS = [3, 5, 10, 20] as const;

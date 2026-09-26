@@ -11,7 +11,7 @@ export function KioskButton({
   const styles = {
     primary:
       "bg-white text-black shadow-[0_16px_40px_rgba(255,255,255,0.12)] active:scale-[0.98]",
-    gold: "bg-accent text-[#14110c] shadow-[0_16px_40px_rgba(196,163,90,0.28)] active:scale-[0.98]",
+    gold: "bg-accent text-white shadow-[0_16px_40px_rgba(26,76,150,0.28)] active:scale-[0.98]",
     ghost:
       "bg-white/8 text-white ring-1 ring-white/18 active:bg-white/12",
   }[variant];

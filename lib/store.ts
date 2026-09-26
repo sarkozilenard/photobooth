@@ -150,11 +150,7 @@ function normalizeSettings(
 ): BoothSettings {
   const rawFrame = stored?.frameStyle as string | undefined;
   const frameStyle =
-    rawFrame === "classic" || rawFrame === "booth"
-      ? "booth"
-      : rawFrame === "gold" || rawFrame === "minimal" || rawFrame === "none"
-        ? rawFrame
-        : DEFAULT_SETTINGS.frameStyle;
+    rawFrame === "minimal" ? "minimal" : "booth";
   const logoPublicPath =
     typeof stored?.logoPublicPath === "string" && stored.logoPublicPath.startsWith("/")
       ? stored.logoPublicPath
