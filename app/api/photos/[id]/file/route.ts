@@ -1,7 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
-import { getBoothBlob } from "@/lib/blob-store";
+import { fetchBoothFile } from "@/lib/blob-store";
 import { getPhoto, readLocalPhoto } from "@/lib/store";
+
+function imageResponse(body: BodyInit, mimeType: string, id: string) {
+  return new NextResponse(body, {
+    headers: {
+      "Content-Type": mimeType || "image/jpeg",
+      "Cache-Control": "private, max-age=3600",
+      "Content-Disposition": `inline; filename="booth-${id}.jpg"`,
+    },
+  });
+}
 
 export async function GET(
   request: NextRequest,
@@ -19,51 +29,20 @@ export async function GET(
 
   if (photo.localPath) {
     const bytes = await readLocalPhoto(photo.localPath);
-    return new NextResponse(new Uint8Array(bytes), {
-      headers: {
-        "Content-Type": photo.mimeType,
-        "Cache-Control": "private, max-age=3600",
-        "Content-Disposition": `inline; filename="booth-${photo.id}.jpg"`,
-      },
-    });
+    return imageResponse(new Uint8Array(bytes), photo.mimeType, photo.id);
   }
 
-  if (photo.blobUrl) {
-    try {
-      const direct = await fetch(photo.blobUrl, { cache: "no-store" });
-      if (direct.ok && direct.body) {
-        return new NextResponse(direct.body, {
-          headers: {
-            "Content-Type": photo.mimeType || "image/jpeg",
-            "Cache-Control": "private, max-age=3600",
-            "Content-Disposition": `inline; filename="booth-${photo.id}.jpg"`,
-          },
-        });
-      }
-    } catch {
-      /* blobGet fallback */
+  for (const target of [photo.blobUrl, `photos/${photo.id}.jpg`]) {
+    if (!target) continue;
+    const blob = await fetchBoothFile(target);
+    if (blob?.stream) {
+      return imageResponse(blob.stream, photo.mimeType || blob.contentType || "image/jpeg", photo.id);
     }
-    const blob = await getBoothBlob(photo.blobUrl);
-    if (!blob?.stream) {
-      return NextResponse.json({ error: "A fájl hiányzik" }, { status: 404 });
-    }
-    return new NextResponse(blob.stream, {
-      headers: {
-        "Content-Type": photo.mimeType || "image/jpeg",
-        "Cache-Control": "private, max-age=3600",
-        "Content-Disposition": `inline; filename="booth-${photo.id}.jpg"`,
-      },
-    });
   }
 
   if (photo.dataBase64) {
     const bytes = Buffer.from(photo.dataBase64, "base64");
-    return new NextResponse(new Uint8Array(bytes), {
-      headers: {
-        "Content-Type": photo.mimeType,
-        "Cache-Control": "private, max-age=3600",
-      },
-    });
+    return imageResponse(new Uint8Array(bytes), photo.mimeType, photo.id);
   }
 
   return NextResponse.json({ error: "A fájl hiányzik" }, { status: 404 });

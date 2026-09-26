@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createId } from "@/lib/ids";
 import {
+  getRoom,
   isOnline,
   pushSignal,
   readSignals,
@@ -15,13 +16,13 @@ export async function GET(
 ) {
   const { code } = await context.params;
   const roomCode = code.toUpperCase();
-  const room = await upsertRoom(roomCode);
+  const room = await getRoom(roomCode);
   const after = Number(request.nextUrl.searchParams.get("after") || "0");
-  const messages = await readSignals(roomCode, after);
+  const messages = room ? await readSignals(roomCode, after) : [];
   return NextResponse.json({
     messages,
-    cameraOnline: isOnline(room.cameraLastSeen),
-    boothOnline: isOnline(room.boothLastSeen),
+    cameraOnline: room ? isOnline(room.cameraLastSeen) : false,
+    boothOnline: room ? isOnline(room.boothLastSeen) : false,
   });
 }
 

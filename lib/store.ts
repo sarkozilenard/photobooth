@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { putBoothBlob, getBoothBlob, listBoothBlobs } from "./blob-store";
+import { putBoothBlob, fetchBoothJson, fetchBoothFile, blobPublicUrl } from "./blob-store";
 import {
   AppState,
   BoothSettings,
@@ -15,7 +15,6 @@ const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const PHOTOS_DIR = path.join(DATA_DIR, "photos");
 const LOGOS_DIR = path.join(DATA_DIR, "logos");
-const BLOB_STATE = "booth/state.json";
 
 const emptyState = (): AppState => ({
   version: 1,
@@ -70,19 +69,6 @@ function normalizeState(state: AppState | undefined | null): AppState {
 }
 
 async function readState(): Promise<AppState> {
-  if (useBlob()) {
-    try {
-      const result = await getBoothBlob(BLOB_STATE, false);
-      if (!result?.stream) return normalizeState(globalStore.__boothState);
-      const text = await new Response(result.stream).text();
-      const parsed = normalizeState(JSON.parse(text) as AppState);
-      globalStore.__boothState = parsed;
-      return parsed;
-    } catch {
-      return normalizeState(globalStore.__boothState);
-    }
-  }
-
   if (useFile()) {
     try {
       const raw = await readFile(DB_FILE, "utf8");
@@ -102,11 +88,6 @@ async function readState(): Promise<AppState> {
 async function writeState(state: AppState) {
   state.version += 1;
   globalStore.__boothState = state;
-
-  if (useBlob()) {
-    await putBoothBlob(BLOB_STATE, JSON.stringify(state), "application/json");
-    return;
-  }
 
   if (useFile()) {
     await mkdir(DATA_DIR, { recursive: true });
@@ -188,7 +169,12 @@ export async function getSettings(code: string): Promise<BoothSettings> {
     : null;
   const state = await getState();
   const stored = fromBlob ?? state.settings[code] ?? {};
-  const hasLogo = Boolean(state.logos?.[code]) || Boolean(await getLogoRecord(code));
+  const logoMeta = useBlob()
+    ? await readJsonBlob<LogoRecord>(logoMetaPath(code))
+    : null;
+  const hasLogo = Boolean(
+    state.logos?.[code] || logoMeta?.blobUrl || logoMeta?.mimeType,
+  );
   return normalizeSettings(stored, hasLogo);
 }
 
@@ -252,31 +238,32 @@ function logoMetaPath(code: string) {
   return `meta/logos/${code}.json`;
 }
 
+function galleryPath() {
+  return "meta/gallery.json";
+}
+
 async function readJsonBlob<T>(pathname: string): Promise<T | null> {
-  try {
-    const listed = await listBoothBlobs(pathname);
-    const hit = listed.blobs.find(
-      (item) => item.pathname === pathname || item.pathname.endsWith(`/${pathname}`),
-    );
-    if (hit?.url) {
-      const res = await fetch(hit.url, { cache: "no-store" });
-      if (res.ok) return (await res.json()) as T;
-    }
-  } catch {
-    /* get fallback */
-  }
-  try {
-    const blob = await getBoothBlob(pathname, false);
-    if (!blob?.stream) return null;
-    return JSON.parse(await new Response(blob.stream).text()) as T;
-  } catch {
-    return null;
-  }
+  return fetchBoothJson<T>(pathname);
+}
+
+async function readGallery(): Promise<PhotoRecord[]> {
+  const listed = await fetchBoothJson<PhotoRecord[]>(galleryPath());
+  return Array.isArray(listed) ? listed.filter((item) => item?.id) : [];
+}
+
+async function writeGallery(photos: PhotoRecord[]) {
+  await putBoothBlob(
+    galleryPath(),
+    JSON.stringify(photos.slice(0, 400)),
+    "application/json",
+  );
 }
 
 export async function savePhoto(record: PhotoRecord) {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (useBlob()) {
     await putBoothBlob(photoMetaPath(record.id), JSON.stringify(record), "application/json");
+    const gallery = await readGallery();
+    await writeGallery([record, ...gallery.filter((item) => item.id !== record.id)]);
   }
   try {
     return await mutateState((state) => {
@@ -289,34 +276,18 @@ export async function savePhoto(record: PhotoRecord) {
 }
 
 export async function getPhoto(id: string) {
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
+  if (useBlob()) {
     const meta = await readJsonBlob<PhotoRecord>(photoMetaPath(id));
     if (meta?.id) return meta;
   }
   const state = await getState();
-  return state.photos[id] ?? null;
+  return state.photos[id] ?? (await readGallery()).find((item) => item.id === id) ?? null;
 }
 
 export async function listPhotos(roomCode?: string) {
   let photos: PhotoRecord[] = [];
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const listed = await listBoothBlobs("meta/photos/");
-      const loaded = await Promise.all(
-        listed.blobs.map(async (item) => {
-          try {
-            const res = await fetch(item.url, { cache: "no-store" });
-            if (!res.ok) return null;
-            return (await res.json()) as PhotoRecord;
-          } catch {
-            return null;
-          }
-        }),
-      );
-      photos = loaded.filter((item): item is PhotoRecord => Boolean(item?.id));
-    } catch {
-      photos = [];
-    }
+  if (useBlob()) {
+    photos = await readGallery();
   }
   if (photos.length === 0) {
     const state = await getState();
@@ -328,14 +299,9 @@ export async function listPhotos(roomCode?: string) {
 
 export async function deletePhoto(id: string) {
   const existing = await getPhoto(id);
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const { del } = await import("@vercel/blob");
-      await del(photoMetaPath(id));
-      if (existing?.blobUrl) await del(existing.blobUrl);
-    } catch {
-      /* ignore */
-    }
+  if (useBlob()) {
+    const gallery = await readGallery();
+    await writeGallery(gallery.filter((item) => item.id !== id));
   }
   return mutateState(async (state) => {
     const photo = state.photos[id] ?? existing;
@@ -430,21 +396,20 @@ async function getLogoRecord(code: string) {
   if (useBlob()) {
     const meta = await readJsonBlob<LogoRecord>(logoMetaPath(code));
     if (meta?.mimeType) return meta;
-    try {
-      const listed = await listBoothBlobs(`logos/${code}`);
-      const hit = listed.blobs.find((item) => !item.pathname.includes("meta/"));
-      if (hit?.url) {
-        const mimeType = hit.pathname.endsWith(".png")
-          ? "image/png"
-          : hit.pathname.endsWith(".webp")
-            ? "image/webp"
-            : hit.pathname.endsWith(".gif")
-              ? "image/gif"
-              : "image/jpeg";
-        return { mimeType, blobUrl: hit.url } satisfies LogoRecord;
+    for (const ext of ["png", "jpg", "webp", "gif"]) {
+      const file = await fetchBoothFile(`logos/${code}.${ext}`);
+      if (file?.stream) {
+        const mimeType =
+          ext === "png"
+            ? "image/png"
+            : ext === "webp"
+              ? "image/webp"
+              : ext === "gif"
+                ? "image/gif"
+                : "image/jpeg";
+        const url = blobPublicUrl(`logos/${code}.${ext}`);
+        return { mimeType, blobUrl: url ?? undefined } satisfies LogoRecord;
       }
-    } catch {
-      /* ignore */
     }
   }
   const state = await getState();
@@ -459,7 +424,7 @@ export async function readLogo(code: string) {
     return { bytes, mimeType: record.mimeType };
   }
   if (record.blobUrl) {
-    const blob = await getBoothBlob(record.blobUrl);
+    const blob = await fetchBoothFile(record.blobUrl);
     if (!blob?.stream) return null;
     const bytes = Buffer.from(await new Response(blob.stream).arrayBuffer());
     return { bytes, mimeType: record.mimeType };
@@ -475,15 +440,6 @@ export async function readLogo(code: string) {
 
 export async function deleteLogo(code: string) {
   const existing = await getLogoRecord(code);
-  if (useBlob()) {
-    try {
-      const { del } = await import("@vercel/blob");
-      await del(logoMetaPath(code));
-      if (existing?.blobUrl) await del(existing.blobUrl);
-    } catch {
-      /* ignore */
-    }
-  }
   return mutateState(async (state) => {
     const record = state.logos[code] ?? existing;
     if (!record) return null;
