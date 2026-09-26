@@ -173,7 +173,7 @@ export async function getSettings(code: string): Promise<BoothSettings> {
     ? await readJsonBlob<LogoRecord>(logoMetaPath(code))
     : null;
   const hasLogo = Boolean(
-    state.logos?.[code] || logoMeta?.blobUrl || logoMeta?.mimeType,
+    state.logos?.[code] || logoMeta?.blobUrl || logoMeta?.mimeType || stored.hasLogo,
   );
   return normalizeSettings(stored, hasLogo);
 }
@@ -360,25 +360,25 @@ function logoExt(mime: string) {
 
 export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
   const record: LogoRecord = { mimeType };
-  try {
+  if (useBlob()) {
     const blob = await putBoothBlob(
       `logos/${code}.${logoExt(mimeType)}`,
       bytes,
       mimeType,
     );
     record.blobUrl = blob.url;
-  } catch {
-    if (process.env.VERCEL !== "1") {
-      await mkdir(LOGOS_DIR, { recursive: true });
-      const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
-      await writeFile(filePath, bytes);
-      record.localPath = filePath;
-    } else {
-      record.dataBase64 = bytes.toString("base64");
+    try {
+      await putBoothBlob(logoMetaPath(code), JSON.stringify(record), "application/json");
+    } catch {
+      /* a fájl URL elég */
     }
-  }
-  if (useBlob()) {
-    await putBoothBlob(logoMetaPath(code), JSON.stringify(record), "application/json");
+  } else if (process.env.VERCEL === "1") {
+    record.dataBase64 = bytes.toString("base64");
+  } else {
+    await mkdir(LOGOS_DIR, { recursive: true });
+    const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
+    await writeFile(filePath, bytes);
+    record.localPath = filePath;
   }
   try {
     await mutateState(async (state) => {
@@ -387,7 +387,12 @@ export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
       return record;
     });
   } catch {
-    /* meta blob is enough */
+    /* ignore */
+  }
+  try {
+    await updateSettings(code, { hasLogo: true });
+  } catch {
+    /* ignore */
   }
   return record;
 }

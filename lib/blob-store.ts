@@ -20,13 +20,31 @@ export async function putBoothBlob(
   body: Buffer | string,
   contentType: string,
 ) {
-  const access = process.env.BLOB_ACCESS === "private" ? "private" : "public";
-  return blobPut(pathname, body, {
-    access,
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    contentType,
-  });
+  const order: Array<"public" | "private"> =
+    process.env.BLOB_ACCESS === "private" ? ["private", "public"] : ["public", "private"];
+  let last: unknown;
+  for (const access of order) {
+    try {
+      return await blobPut(pathname, body, {
+        access,
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType,
+      });
+    } catch (error) {
+      last = error;
+      const msg = error instanceof Error ? error.message : String(error);
+      if (
+        /private access on a public store|public access on a private store/i.test(
+          msg,
+        )
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw last instanceof Error ? last : new Error("Blob feltöltés sikertelen");
 }
 
 export async function fetchBoothJson<T>(pathname: string): Promise<T | null> {

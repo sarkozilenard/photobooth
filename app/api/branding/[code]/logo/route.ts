@@ -21,6 +21,17 @@ export async function GET(
   });
 }
 
+function isFileBlob(value: FormDataEntryValue | null): value is File {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      "arrayBuffer" in value &&
+      typeof (value as File).arrayBuffer === "function" &&
+      typeof (value as File).size === "number" &&
+      (value as File).size > 0,
+  );
+}
+
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ code: string }> },
@@ -33,10 +44,10 @@ export async function POST(
   await upsertRoom(roomCode);
   const form = await request.formData();
   const file = form.get("file");
-  if (!(file instanceof File)) {
+  if (!isFileBlob(file)) {
     return NextResponse.json({ error: "Hiányzó fájl" }, { status: 400 });
   }
-  const name = file.name.toLowerCase();
+  const name = String((file as File).name || "").toLowerCase();
   const mime =
     file.type && ALLOWED.has(file.type)
       ? file.type
@@ -62,10 +73,15 @@ export async function POST(
   try {
     await saveLogo(roomCode, bytes, mime);
   } catch (error) {
-    console.error(error);
+    const detail = error instanceof Error ? error.message : "ismeretlen hiba";
+    const hobby = /hobby|usage limits|upgrade to pro/i.test(detail);
     return NextResponse.json(
-      { error: "A logó mentése nem sikerült. Ellenőrizd a Vercel Blob store-t." },
-      { status: 500 },
+      {
+        error: hobby
+          ? "A Blob store Hobby limitje betelt. Vercel → Storage → új Blob store → Connect, aztán Redeploy."
+          : `A logó mentése nem sikerült: ${detail}`,
+      },
+      { status: 503 },
     );
   }
   return NextResponse.json({ ok: true, hasLogo: true });
