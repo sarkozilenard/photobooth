@@ -58,6 +58,17 @@ function useFile() {
   return process.env.VERCEL !== "1";
 }
 
+function normalizeState(state: AppState | undefined | null): AppState {
+  const next = state ?? emptyState();
+  next.rooms = next.rooms ?? {};
+  next.photos = next.photos ?? {};
+  next.settings = next.settings ?? {};
+  next.signals = next.signals ?? {};
+  next.logos = next.logos ?? {};
+  next.version = next.version ?? 1;
+  return next;
+}
+
 async function readState(): Promise<AppState> {
   if (useBlob()) {
     try {
@@ -65,32 +76,30 @@ async function readState(): Promise<AppState> {
         access: "private",
         useCache: false,
       });
-      if (!result?.stream) return globalStore.__boothState ?? emptyState();
+      if (!result?.stream) return normalizeState(globalStore.__boothState);
       const text = await new Response(result.stream).text();
-      const parsed = JSON.parse(text) as AppState;
-      parsed.logos = parsed.logos ?? {};
+      const parsed = normalizeState(JSON.parse(text) as AppState);
       globalStore.__boothState = parsed;
       return parsed;
     } catch {
-      return globalStore.__boothState ?? emptyState();
+      return normalizeState(globalStore.__boothState);
     }
   }
 
   if (useFile()) {
     try {
       const raw = await readFile(DB_FILE, "utf8");
-      const parsed = JSON.parse(raw) as AppState;
-      parsed.logos = parsed.logos ?? {};
+      const parsed = normalizeState(JSON.parse(raw) as AppState);
       globalStore.__boothState = parsed;
       return parsed;
     } catch {
-      const state = globalStore.__boothState ?? emptyState();
+      const state = normalizeState(globalStore.__boothState);
       globalStore.__boothState = state;
       return state;
     }
   }
 
-  return globalStore.__boothState ?? emptyState();
+  return normalizeState(globalStore.__boothState);
 }
 
 async function writeState(state: AppState) {
@@ -176,7 +185,7 @@ export async function getSettings(code: string): Promise<BoothSettings> {
     ...DEFAULT_SETTINGS,
     ...stored,
     frameStyle,
-    hasLogo: Boolean(state.logos[code]),
+    hasLogo: Boolean(state.logos?.[code]),
   };
 }
 
@@ -274,22 +283,26 @@ export async function storePhotoBytes(
   bytes: Buffer,
   mimeType: string,
 ): Promise<{ blobUrl?: string; localPath?: string }> {
-  try {
-    const blob = await blobPut(`photos/${id}.jpg`, bytes, {
-      access: "private",
-      addRandomSuffix: false,
-      contentType: mimeType,
-      allowOverwrite: true,
-    });
-    return { blobUrl: blob.url };
-  } catch (error) {
-    if (process.env.VERCEL === "1") {
-      const err = new Error("BLOB_REQUIRED");
-      (err as Error & { cause?: unknown }).cause = error;
-      throw err;
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const blob = await blobPut(`photos/${id}.jpg`, bytes, {
+        access: "private",
+        addRandomSuffix: false,
+        contentType: mimeType,
+        allowOverwrite: true,
+      });
+      return { blobUrl: blob.url };
+    } catch (error) {
+      if (process.env.VERCEL === "1") {
+        const err = new Error("BLOB_REQUIRED");
+        (err as Error & { cause?: unknown }).cause = error;
+        throw err;
+      }
     }
-    return { localPath: await writeLocalPhoto(id, bytes) };
+  } else if (process.env.VERCEL === "1") {
+    throw new Error("BLOB_REQUIRED");
   }
+  return { localPath: await writeLocalPhoto(id, bytes) };
 }
 
 export async function readLocalPhoto(filePath: string) {

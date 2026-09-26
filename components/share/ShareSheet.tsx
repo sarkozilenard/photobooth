@@ -15,6 +15,26 @@ async function makeQr(record: PhotoRecord) {
   return { url, qr };
 }
 
+async function shrinkJpeg(blob: Blob, quality: number) {
+  const image = await createImageBitmap(blob);
+  const maxEdge = 1600;
+  const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(image.width * scale));
+  canvas.height = Math.max(1, Math.round(image.height * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    image.close();
+    return blob;
+  }
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  image.close();
+  const compact = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((value) => resolve(value), "image/jpeg", quality),
+  );
+  return compact && compact.size < blob.size ? compact : blob;
+}
+
 async function readError(res: Response) {
   const text = await res.text();
   try {
@@ -27,6 +47,9 @@ async function readError(res: Response) {
   if (res.status === 404) return "A booth nem található. Frissítsd az oldalt.";
   if (res.status === 503) {
     return "A QR-hez Vercel Blob kell: Vercel → Storage → Blob → Connect, majd Redeploy.";
+  }
+  if (res.status === 500) {
+    return "A szerver nem tudta elmenteni a fotót. Vercel → Storage → Blob → Connect, majd Redeploy.";
   }
   return text.trim().slice(0, 180) || `Feltöltés sikertelen (${res.status}).`;
 }
@@ -58,8 +81,10 @@ export function ShareSheet({
       setStatus("Feltöltés…");
       let record = photo;
       if (!record && file) {
-        const upload = new File([file], "photobooth.jpg", {
-          type: file.type || "image/jpeg",
+        const packed =
+          file.size > 3.2 * 1024 * 1024 ? await shrinkJpeg(file, 0.72) : file;
+        const upload = new File([packed], "photobooth.jpg", {
+          type: "image/jpeg",
         });
         const form = new FormData();
         form.set("file", upload);
