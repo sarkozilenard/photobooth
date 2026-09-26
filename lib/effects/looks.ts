@@ -1,4 +1,4 @@
-export type LookOverlay = "none" | "vignette" | "grain" | "paper";
+export type LookOverlay = "none" | "vignette" | "grain" | "paper" | "film";
 
 export interface BoothLook {
   id: string;
@@ -15,6 +15,13 @@ export const BOOTH_LOOKS: BoothLook[] = [
     hint: "Klasszikus automata",
     filter: "grayscale(1) contrast(1.42) brightness(1.06) saturate(0)",
     overlay: "grain",
+  },
+  {
+    id: "film",
+    label: "Film",
+    hint: "Vintage booth",
+    filter: "contrast(0.9) brightness(1.08) saturate(0.52) sepia(0.18) hue-rotate(188deg)",
+    overlay: "film",
   },
   {
     id: "sepia",
@@ -134,6 +141,24 @@ export function paintLookOverlay(
     ctx.fillRect(0, 0, width, height);
     return;
   }
+  if (overlay === "film") {
+    paintGrain(ctx, width, height, 0.28);
+    ctx.fillStyle = "rgba(72, 92, 122, 0.16)";
+    ctx.fillRect(0, 0, width, height);
+    const glow = ctx.createRadialGradient(
+      width / 2,
+      height / 2,
+      Math.min(width, height) * 0.28,
+      width / 2,
+      height / 2,
+      Math.max(width, height) * 0.72,
+    );
+    glow.addColorStop(0, "rgba(0,0,0,0)");
+    glow.addColorStop(1, "rgba(18, 16, 22, 0.38)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
+    return;
+  }
   const glow = ctx.createRadialGradient(
     width / 2,
     height / 2,
@@ -182,6 +207,22 @@ export function bakeLook(
       const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
       r = g = b = y;
       const tone = applyTone(r, g, b, look.id === "booth" ? 1.42 : 1.12, look.id === "booth" ? 1.06 : 1.1);
+      r = tone.r;
+      g = tone.g;
+      b = tone.b;
+    } else if (look.id === "film") {
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      r = r * 0.58 + y * 0.42;
+      g = g * 0.58 + y * 0.42;
+      b = b * 0.58 + y * 0.42;
+      r = r * 0.84 + 36;
+      g = g * 0.84 + 40;
+      b = b * 0.84 + 52;
+      const t = y / 255;
+      r = clamp(r + (t - 0.42) * 14);
+      g = clamp(g + (t - 0.5) * 4);
+      b = clamp(b + (0.52 - t) * 22);
+      const tone = applyTone(r, g, b, 0.9, 1.05);
       r = tone.r;
       g = tone.g;
       b = tone.b;
