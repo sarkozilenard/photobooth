@@ -1,5 +1,6 @@
 "use client";
 
+import { canUseGrid } from "@/lib/booth/guest-presets";
 import { FrameStyle, LayoutStyle } from "@/lib/types";
 
 function frameClass(frame: FrameStyle) {
@@ -7,20 +8,6 @@ function frameClass(frame: FrameStyle) {
   if (frame === "gold") return "bg-[#c4a35a] p-[3px]";
   if (frame === "minimal") return "bg-black p-1";
   return "bg-black p-0";
-}
-
-function cells(photos: number, layout: LayoutStyle) {
-  if (layout !== "grid" || photos <= 1) {
-    return Array.from({ length: photos }, (_, i) => ({ key: i, className: "col-span-2" }));
-  }
-  if (photos === 3) {
-    return [
-      { key: 0, className: "" },
-      { key: 1, className: "" },
-      { key: 2, className: "col-start-1 justify-self-center w-1/2" },
-    ];
-  }
-  return Array.from({ length: photos }, (_, i) => ({ key: i, className: "" }));
 }
 
 export function LayoutMock({
@@ -43,26 +30,31 @@ export function LayoutMock({
   label: string;
 }) {
   const ratio = aspectRatio && aspectRatio > 0 ? aspectRatio : 4 / 5;
-  const items = cells(Math.max(photos, 1), layout);
+  const grid = layout === "grid" && canUseGrid(photos);
+  const cols = grid ? (photos === 6 && ratio >= 1 ? 3 : 2) : 1;
+  const count = Math.max(photos, 1);
 
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`w-[5.6rem] shrink-0 rounded-xl text-left ${
+      className={`w-[5.4rem] shrink-0 rounded-xl text-left ${
         active ? "ring-2 ring-[#c4a35a] ring-offset-2 ring-offset-black" : "ring-1 ring-white/20"
       }`}
     >
       <div className={`overflow-hidden rounded-xl ${frameClass(frame)}`}>
         <div
-          className={`grid grid-cols-2 ${frame === "none" ? "gap-[2px]" : "gap-0.5"}`}
-          style={{ background: frame === "booth" || frame === "classic" ? "#f4efe8" : "#111" }}
+          className={`grid ${frame === "none" ? "gap-[2px]" : "gap-0.5"}`}
+          style={{
+            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+            background: frame === "booth" || frame === "classic" ? "#f4efe8" : "#111",
+          }}
         >
-          {items.map((item) => (
+          {Array.from({ length: count }, (_, key) => (
             <div
-              key={item.key}
-              className={`overflow-hidden bg-black ${item.className}`}
+              key={key}
+              className="overflow-hidden bg-black"
               style={{ aspectRatio: String(ratio) }}
             >
               {poster ? (

@@ -6,7 +6,7 @@ import { LookStrip } from "@/components/booth/LookGrid";
 import { LookOverlay } from "@/components/booth/LookOverlay";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
-import { ASPECTS, AspectPreset, FRAMES, LAYOUTS } from "@/lib/booth/guest-presets";
+import { ASPECTS, AspectPreset, EXPERIENCES, FRAMES, LAYOUTS, canUseGrid } from "@/lib/booth/guest-presets";
 import { createRingLightDriver } from "@/lib/hardware/ring-light";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings, DEFAULT_SETTINGS, FrameStyle, LayoutStyle, PhotoRecord } from "@/lib/types";
@@ -61,6 +61,8 @@ export function BoothApp({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [lookPoster, setLookPoster] = useState("");
+  const [camSize, setCamSize] = useState({ w: 16, h: 9 });
+  const [moreOpen, setMoreOpen] = useState(false);
   const composeGen = useRef(0);
   const [shotUrls, setShotUrls] = useState<string[]>([]);
   const [shotLabel, setShotLabel] = useState("");
@@ -184,6 +186,7 @@ export function BoothApp({
       if (!ctx) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       setLookPoster(canvas.toDataURL("image/jpeg", 0.5));
+      setCamSize({ w: video.videoWidth, h: video.videoHeight });
     };
     tick();
     const id = window.setInterval(tick, 900);
@@ -266,10 +269,12 @@ export function BoothApp({
         return;
       }
       shotsRef.current = shots;
+      const layout = canUseGrid(shots.length) ? layoutStyle : "strip";
+      if (layout !== layoutStyle) setLayoutStyle(layout);
       const current = {
         ...(settings ?? DEFAULT_SETTINGS),
         frameStyle,
-        layoutStyle,
+        layoutStyle: layout,
       };
       const logo = await loadRoomLogo(code, current.hasLogo);
       const strip = await composeSession(shots, current, logo);
@@ -323,9 +328,15 @@ export function BoothApp({
     if (shotsRef.current.length === 0) return;
     const gen = (composeGen.current += 1);
     const style = patch?.frame ?? frameStyle;
-    const layout = patch?.layout ?? layoutStyle;
+    const layout =
+      patch?.layout &&
+      (patch.layout !== "grid" || canUseGrid(shotsRef.current.length))
+        ? patch.layout
+        : canUseGrid(shotsRef.current.length)
+          ? (patch?.layout ?? layoutStyle)
+          : "strip";
     if (patch?.frame) setFrameStyle(patch.frame);
-    if (patch?.layout) setLayoutStyle(patch.layout);
+    if (layout !== layoutStyle) setLayoutStyle(layout);
     const current = {
       ...(settings ?? DEFAULT_SETTINGS),
       frameStyle: style,
@@ -358,18 +369,63 @@ export function BoothApp({
   }
 
   const title = settings?.name || "PHOTO BOOTH";
+  const photoLandscape =
+    aspect.ratio != null ? aspect.ratio >= 1 : camSize.w >= camSize.h;
+  const liveDock = phase === "live" && cameraOnline && !busy;
+  const previewLayouts = LAYOUTS.filter(
+    (preset) => preset.id === "strip" || canUseGrid(shotUrls.length),
+  );
+
+  function pickPhotos(preset: { photos: number }) {
+    setPhotosPerRound(preset.photos);
+    if (!canUseGrid(preset.photos)) setLayoutStyle("strip");
+  }
+
+  function pickLayout(next: LayoutStyle) {
+    if (next === "grid" && !canUseGrid(photosPerRound)) return;
+    setLayoutStyle(next);
+  }
+
+  const chooser = (
+    <GuestChooser
+      photos={photosPerRound}
+      layout={layoutStyle}
+      frame={frameStyle}
+      countdown={countdownSeconds}
+      aspectId={aspect.id}
+      aspectRatio={aspect.ratio}
+      poster={lookPoster}
+      dense={!photoLandscape}
+      onExperience={pickPhotos}
+      onLayout={pickLayout}
+      onFrame={(preset) => setFrameStyle(preset.id)}
+      onCountdown={setCountdownSeconds}
+      onAspect={setAspect}
+    />
+  );
 
   return (
-    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
-      <header className="flex shrink-0 items-start justify-between px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <div
+      className={`flex h-[100dvh] w-full overflow-hidden bg-black text-white ${
+        photoLandscape ? "flex-row" : "flex-col"
+      }`}
+    >
+      <header
+        className={`z-20 flex items-start justify-between px-4 py-2 ${
+          photoLandscape
+            ? "pointer-events-none absolute inset-x-0 top-0 pt-[max(0.5rem,env(safe-area-inset-top))]"
+            : "shrink-0 pt-[max(0.5rem,env(safe-area-inset-top))]"
+        }`}
+      >
         <div
+          className="pointer-events-auto"
           onPointerDown={beginOperatorHold}
           onPointerUp={endOperatorHold}
           onPointerCancel={endOperatorHold}
           onPointerLeave={endOperatorHold}
         >
-          <p className="text-xs tracking-[0.5em] text-[#c4a35a]">{title}</p>
-          <p className="mt-1 text-xs text-white/50">
+          <p className="text-xs tracking-[0.5em] text-[#c4a35a] drop-shadow">{title}</p>
+          <p className="mt-1 text-xs text-white/60 drop-shadow">
             {cameraOnline
               ? `${photosPerRound} fotó · ${look.label} · ${aspect.label} · ${countdownSeconds} mp`
               : "Kamera várakozik"}
@@ -383,7 +439,7 @@ export function BoothApp({
         />
       </header>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-3">
+      <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center">
         <div
           className={`relative max-h-full overflow-hidden bg-black ${phase === "preview" ? "hidden" : ""}`}
           style={
@@ -451,34 +507,58 @@ export function BoothApp({
         ) : null}
       </div>
 
-      {phase === "live" && cameraOnline && !busy ? (
-        <div className="shrink-0 bg-black px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2">
-          <div className="flex flex-col items-center gap-2">
-            <LookStrip
-              stream={stream}
-              poster={lookPoster}
-              selectedId={look.id}
-              onSelect={pickLook}
-            />
-            <GuestChooser
-              photos={photosPerRound}
-              layout={layoutStyle}
-              frame={frameStyle}
-              countdown={countdownSeconds}
-              aspectId={aspect.id}
-              aspectRatio={aspect.ratio}
-              poster={lookPoster}
-              onExperience={(preset) => {
-                setPhotosPerRound(preset.photos);
-                if (preset.photos === 1) setLayoutStyle("strip");
-              }}
-              onLayout={setLayoutStyle}
-              onFrame={(preset) => setFrameStyle(preset.id)}
-              onCountdown={setCountdownSeconds}
-              onAspect={setAspect}
-            />
+      {photoLandscape && liveDock ? (
+        <aside className="flex w-[min(26rem,42vw)] shrink-0 flex-col items-center gap-3 overflow-y-auto border-l border-white/10 px-3 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <LookStrip
+            stream={stream}
+            poster={lookPoster}
+            selectedId={look.id}
+            onSelect={pickLook}
+          />
+          {chooser}
+          <KioskButton
+            className="min-h-14 min-w-[12rem] text-lg"
+            disabled={!cameraOnline}
+            onClick={() => void startShoot()}
+          >
+            Fotózás
+          </KioskButton>
+        </aside>
+      ) : null}
+
+      {!photoLandscape && liveDock ? (
+        <div className="shrink-0 px-3 pb-[max(0.7rem,env(safe-area-inset-bottom))] pt-1">
+          <LookStrip
+            stream={stream}
+            poster={lookPoster}
+            selectedId={look.id}
+            onSelect={pickLook}
+            tiny
+          />
+          <div className="mt-1 flex flex-wrap justify-center gap-1.5">
+            {EXPERIENCES.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() => pickPhotos(preset)}
+                className={`min-h-9 rounded-full px-3 text-xs font-semibold ${
+                  preset.photos === photosPerRound ? "bg-white text-black" : "bg-white/10"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center justify-center gap-2">
+            <button
+              type="button"
+              className="min-h-12 rounded-full bg-white/10 px-5 text-sm font-semibold"
+              onClick={() => setMoreOpen(true)}
+            >
+              Elrendezés
+            </button>
             <KioskButton
-              className="min-h-14 min-w-[14rem] text-lg"
+              className="min-h-12 min-w-[10rem] text-base"
               disabled={!cameraOnline}
               onClick={() => void startShoot()}
             >
@@ -488,11 +568,33 @@ export function BoothApp({
         </div>
       ) : null}
 
+      {moreOpen && !photoLandscape && liveDock ? (
+        <div className="absolute inset-x-0 bottom-0 z-30 max-h-[58dvh] overflow-y-auto rounded-t-3xl border-t border-white/10 bg-black/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-xs tracking-[0.28em] text-[#c4a35a] uppercase">Elrendezés</p>
+            <button
+              type="button"
+              className="rounded-full bg-white/10 px-4 py-2 text-sm"
+              onClick={() => setMoreOpen(false)}
+            >
+              Kész
+            </button>
+          </div>
+          {chooser}
+        </div>
+      ) : null}
+
       {phase === "preview" && (photo || localFile) ? (
-        <div className="flex shrink-0 flex-col items-center gap-2 bg-black/90 px-3 pb-[max(0.9rem,env(safe-area-inset-bottom))] pt-2">
+        <div
+          className={`flex shrink-0 flex-col items-center gap-2 bg-black/90 px-3 pt-2 ${
+            photoLandscape
+              ? "w-[min(22rem,38vw)] border-l border-white/10 pb-4"
+              : "pb-[max(0.9rem,env(safe-area-inset-bottom))]"
+          }`}
+        >
           <div className="flex max-w-full flex-wrap justify-center gap-1.5 overflow-x-auto">
             {shotUrls.length > 1
-              ? LAYOUTS.map((preset) => (
+              ? previewLayouts.map((preset) => (
                   <button
                     key={preset.id}
                     type="button"
@@ -519,10 +621,10 @@ export function BoothApp({
             ))}
           </div>
           <div className="flex items-center justify-center gap-3">
-            <KioskButton className="min-h-12 min-w-[9rem] text-base" variant="ghost" onClick={reset}>
+            <KioskButton className="min-h-12 min-w-[8rem] text-base" variant="ghost" onClick={reset}>
               Új fotó
             </KioskButton>
-            <KioskButton className="min-h-12 min-w-[9rem] text-base" variant="gold" onClick={() => setShareOpen(true)}>
+            <KioskButton className="min-h-12 min-w-[8rem] text-base" variant="gold" onClick={() => setShareOpen(true)}>
               QR-kód
             </KioskButton>
           </div>
@@ -566,7 +668,7 @@ export function BoothApp({
                 <input
                   type="range"
                   min={1}
-                  max={4}
+                  max={6}
                   value={settings.photosPerRound}
                   className="accent-[#c4a35a]"
                   onChange={(e) =>

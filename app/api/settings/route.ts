@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
-import { getSettings, updateSettings } from "@/lib/store";
+import { getSettings, updateSettings, upsertRoom } from "@/lib/store";
 import { BoothSettings } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -20,6 +20,11 @@ export async function PUT(request: NextRequest) {
     room: string;
     settings: Partial<BoothSettings>;
   };
-  const settings = await updateSettings(body.room.toUpperCase(), body.settings);
+  const code = body.room?.toUpperCase();
+  if (!code) {
+    return NextResponse.json({ error: "Hiányzó booth kód" }, { status: 400 });
+  }
+  await upsertRoom(code);
+  const settings = await updateSettings(code, body.settings ?? {});
   return NextResponse.json({ settings });
 }

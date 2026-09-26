@@ -10,8 +10,11 @@ export interface ExperiencePreset {
 
 export const EXPERIENCES: ExperiencePreset[] = [
   { id: "solo", label: "1 fotó", hint: "Egy portré", photos: 1, layout: "strip" },
+  { id: "strip2", label: "2 fotó", hint: "Páros", photos: 2, layout: "strip" },
   { id: "strip3", label: "3 fotó", hint: "Klasszikus booth", photos: 3, layout: "strip" },
   { id: "strip4", label: "4 fotó", hint: "Hosszú csík", photos: 4, layout: "strip" },
+  { id: "strip5", label: "5 fotó", hint: "Hosszú csík", photos: 5, layout: "strip" },
+  { id: "strip6", label: "6 fotó", hint: "Hosszú csík", photos: 6, layout: "strip" },
 ];
 
 export interface FramePreset {
@@ -48,6 +51,10 @@ export const LAYOUTS: { id: LayoutStyle; label: string }[] = [
   { id: "strip", label: "Csík" },
   { id: "grid", label: "Rács" },
 ];
+
+export function canUseGrid(photos: number) {
+  return photos === 2 || photos === 4 || photos === 6;
+}
 
 export function matchExperience(photos: number, layout: LayoutStyle) {
   return (

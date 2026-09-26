@@ -1,6 +1,9 @@
 import { getPhoto } from "@/lib/store";
 import { GuestPhoto } from "@/components/share/GuestPhoto";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function PhotoPage({
   params,
   searchParams,
@@ -13,8 +16,8 @@ export default async function PhotoPage({
   const photo = await getPhoto(id);
   if (!photo || t !== photo.token) {
     return (
-      <div className="flex min-h-[100dvh] items-center justify-center bg-black text-white">
-        A fotó nem elérhető.
+      <div className="flex min-h-[100dvh] items-center justify-center bg-black p-6 text-center text-white">
+        A fotó nem elérhető. Olvasd be újra a QR-kódot, vagy kérj újat a booth-on.
       </div>
     );
   }

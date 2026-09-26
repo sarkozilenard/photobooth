@@ -29,6 +29,20 @@ export async function GET(
   }
 
   if (photo.blobUrl) {
+    try {
+      const direct = await fetch(photo.blobUrl, { cache: "no-store" });
+      if (direct.ok && direct.body) {
+        return new NextResponse(direct.body, {
+          headers: {
+            "Content-Type": photo.mimeType || "image/jpeg",
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": `inline; filename="booth-${photo.id}.jpg"`,
+          },
+        });
+      }
+    } catch {
+      /* blobGet fallback */
+    }
     const blob = await getBoothBlob(photo.blobUrl);
     if (!blob?.stream) {
       return NextResponse.json({ error: "A fájl hiányzik" }, { status: 404 });

@@ -9,12 +9,14 @@ function LookTile({
   stream,
   poster,
   selected,
+  tiny = false,
   onSelect,
 }: {
   look: BoothLook;
   stream: MediaStream | null;
   poster?: string;
   selected?: boolean;
+  tiny?: boolean;
   onSelect: (look: BoothLook) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -33,7 +35,9 @@ function LookTile({
     <button
       type="button"
       onClick={() => onSelect(look)}
-      className={`group relative h-16 w-16 shrink-0 overflow-hidden rounded-xl text-left ring-2 transition duration-200 sm:h-[4.25rem] sm:w-[4.25rem] ${
+      className={`group relative shrink-0 overflow-hidden rounded-xl text-left ring-2 transition duration-200 ${
+        tiny ? "h-12 w-12" : "h-16 w-16 sm:h-[4.25rem] sm:w-[4.25rem]"
+      } ${
         selected
           ? "ring-[#c4a35a] ring-offset-2 ring-offset-black"
           : "ring-white/15 active:scale-[0.98]"
@@ -103,11 +107,13 @@ export function LookStrip({
   selectedId,
   onSelect,
   poster,
+  tiny = false,
 }: {
   stream: MediaStream | null;
   selectedId: string;
   onSelect: (look: BoothLook) => void;
   poster?: string;
+  tiny?: boolean;
 }) {
   return (
     <div className="flex max-w-full gap-1.5 overflow-x-auto px-1 pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -118,6 +124,7 @@ export function LookStrip({
           stream={stream}
           poster={poster}
           selected={look.id === selectedId}
+          tiny={tiny}
           onSelect={onSelect}
         />
       ))}

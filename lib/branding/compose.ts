@@ -1,4 +1,5 @@
 import { BoothSettings, FrameStyle, LayoutStyle } from "@/lib/types";
+import { canUseGrid } from "@/lib/booth/guest-presets";
 
 export async function loadRoomLogo(code: string, hasLogo?: boolean) {
   if (!hasLogo) return null;
@@ -92,7 +93,7 @@ function buildCells(
   gap: number,
   ratio: number,
 ): { cells: Cell[]; blockH: number } {
-  const grid = layout === "grid" && count > 1;
+  const grid = layout === "grid" && canUseGrid(count);
   if (!grid) {
     const h = Math.max(1, Math.round(innerW * ratio));
     const cells = Array.from({ length: count }, (_, i) => ({
@@ -104,32 +105,14 @@ function buildCells(
     return { cells, blockH: count * h + gap * Math.max(count - 1, 0) };
   }
 
-  const cellW = Math.round((innerW - gap) / 2);
+  const cols = count === 6 && ratio < 1 ? 3 : 2;
+  const cellW = Math.round((innerW - gap * (cols - 1)) / cols);
   const cellH = Math.max(1, Math.round(cellW * ratio));
   const cells: Cell[] = [];
-
-  if (count === 2) {
-    cells.push({ x: 0, y: 0, w: cellW, h: cellH });
-    cells.push({ x: cellW + gap, y: 0, w: cellW, h: cellH });
-    return { cells, blockH: cellH };
-  }
-
-  if (count === 3) {
-    cells.push({ x: 0, y: 0, w: cellW, h: cellH });
-    cells.push({ x: cellW + gap, y: 0, w: cellW, h: cellH });
-    cells.push({
-      x: Math.round((innerW - cellW) / 2),
-      y: cellH + gap,
-      w: cellW,
-      h: cellH,
-    });
-    return { cells, blockH: cellH * 2 + gap };
-  }
-
-  const rows = Math.ceil(count / 2);
+  const rows = Math.ceil(count / cols);
   for (let i = 0; i < count; i += 1) {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
+    const col = i % cols;
+    const row = Math.floor(i / cols);
     cells.push({
       x: col * (cellW + gap),
       y: row * (cellH + gap),
@@ -148,7 +131,10 @@ export async function composeSession(
   if (shots.length === 0) throw new Error("Nincs fotó a montázshoz");
   const images = await Promise.all(shots.map(blobToImage));
   const style = settings.frameStyle;
-  const layout: LayoutStyle = settings.layoutStyle ?? "strip";
+  const layout: LayoutStyle =
+    settings.layoutStyle === "grid" && canUseGrid(images.length)
+      ? "grid"
+      : "strip";
   const caption = settings.eventCaption.trim();
   const pad = framePad(style);
   const footer = bottomPad(style, caption, logo);

@@ -1,4 +1,4 @@
-import { get as blobGet, put as blobPut } from "@vercel/blob";
+import { get as blobGet, list as blobList, put as blobPut } from "@vercel/blob";
 
 const PRIVATE_ON_PUBLIC = /private access on a public store|public store/i;
 const PUBLIC_ON_PRIVATE = /public access on a private store|private store/i;
@@ -16,6 +16,20 @@ function mismatch(access: "public" | "private", message: string) {
     (access === "private" && PRIVATE_ON_PUBLIC.test(message)) ||
     (access === "public" && PUBLIC_ON_PRIVATE.test(message))
   );
+}
+
+async function streamFromUrl(url: string) {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok || !res.body) return null;
+  return { stream: res.body, contentType: res.headers.get("content-type") };
+}
+
+async function resolveListedUrl(pathname: string) {
+  const listed = await blobList({ prefix: pathname, limit: 20 });
+  const hit = listed.blobs.find(
+    (item) => item.pathname === pathname || item.pathname.endsWith(`/${pathname}`),
+  );
+  return hit?.url ?? null;
 }
 
 export async function putBoothBlob(
@@ -48,6 +62,11 @@ export async function putBoothBlob(
 }
 
 export async function getBoothBlob(urlOrPath: string, useCache = true) {
+  if (urlOrPath.startsWith("http")) {
+    const direct = await streamFromUrl(urlOrPath).catch(() => null);
+    if (direct) return direct;
+  }
+
   let last: unknown;
   for (const access of accessOrder()) {
     try {
@@ -64,12 +83,21 @@ export async function getBoothBlob(urlOrPath: string, useCache = true) {
     }
   }
 
-  if (urlOrPath.startsWith("http")) {
-    const res = await fetch(urlOrPath);
-    if (res.ok) {
-      return { stream: res.body, contentType: res.headers.get("content-type") };
+  if (!urlOrPath.startsWith("http")) {
+    try {
+      const url = await resolveListedUrl(urlOrPath);
+      if (url) {
+        const listed = await streamFromUrl(url);
+        if (listed) return listed;
+      }
+    } catch {
+      /* list lehet tiltott */
     }
   }
 
   throw last instanceof Error ? last : new Error("Blob olvasás sikertelen");
+}
+
+export async function listBoothBlobs(prefix: string) {
+  return blobList({ prefix, limit: 1000 });
 }

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
-import { putBoothBlob, getBoothBlob } from "./blob-store";
+import { putBoothBlob, getBoothBlob, listBoothBlobs } from "./blob-store";
 import {
   AppState,
   BoothSettings,
@@ -163,10 +163,11 @@ export async function getRoom(code: string) {
   return state.rooms[code] ?? null;
 }
 
-export async function getSettings(code: string): Promise<BoothSettings> {
-  const state = await getState();
-  const stored = state.settings[code] ?? {};
-  const rawFrame = (stored as { frameStyle?: string }).frameStyle;
+function normalizeSettings(
+  stored: Partial<BoothSettings> | undefined,
+  hasLogo: boolean,
+): BoothSettings {
+  const rawFrame = stored?.frameStyle as string | undefined;
   const frameStyle =
     rawFrame === "classic" || rawFrame === "booth"
       ? "booth"
@@ -177,17 +178,27 @@ export async function getSettings(code: string): Promise<BoothSettings> {
     ...DEFAULT_SETTINGS,
     ...stored,
     frameStyle,
-    hasLogo: Boolean(state.logos?.[code]),
+    hasLogo,
   };
+}
+
+export async function getSettings(code: string): Promise<BoothSettings> {
+  const fromBlob = useBlob()
+    ? await readJsonBlob<BoothSettings>(settingsMetaPath(code))
+    : null;
+  const state = await getState();
+  const stored = fromBlob ?? state.settings[code] ?? {};
+  const hasLogo = Boolean(state.logos?.[code]) || Boolean(await getLogoRecord(code));
+  return normalizeSettings(stored, hasLogo);
 }
 
 export async function updateSettings(
   code: string,
   patch: Partial<BoothSettings>,
 ) {
-  return mutateState((state) => {
-    const current = { ...DEFAULT_SETTINGS, ...(state.settings[code] ?? {}) };
-    const next = {
+  const current = await getSettings(code);
+  const next = normalizeSettings(
+    {
       ...current,
       ...patch,
       countdownSeconds: Math.min(
@@ -195,13 +206,23 @@ export async function updateSettings(
         Math.max(1, Math.round(patch.countdownSeconds ?? current.countdownSeconds)),
       ),
       photosPerRound: Math.min(
-        4,
+        6,
         Math.max(1, Math.round(patch.photosPerRound ?? current.photosPerRound)),
       ),
-    };
-    state.settings[code] = next;
+    },
+    current.hasLogo,
+  );
+  if (useBlob()) {
+    await putBoothBlob(settingsMetaPath(code), JSON.stringify(next), "application/json");
+  }
+  try {
+    return await mutateState((state) => {
+      state.settings[code] = next;
+      return next;
+    });
+  } catch {
     return next;
-  });
+  }
 }
 
 export async function pushSignal(message: SignalMessage) {
@@ -219,29 +240,105 @@ export async function readSignals(code: string, after: number) {
   return list.filter((item) => item.ts > after);
 }
 
+function photoMetaPath(id: string) {
+  return `meta/photos/${id}.json`;
+}
+
+function settingsMetaPath(code: string) {
+  return `meta/settings/${code}.json`;
+}
+
+function logoMetaPath(code: string) {
+  return `meta/logos/${code}.json`;
+}
+
+async function readJsonBlob<T>(pathname: string): Promise<T | null> {
+  try {
+    const listed = await listBoothBlobs(pathname);
+    const hit = listed.blobs.find(
+      (item) => item.pathname === pathname || item.pathname.endsWith(`/${pathname}`),
+    );
+    if (hit?.url) {
+      const res = await fetch(hit.url, { cache: "no-store" });
+      if (res.ok) return (await res.json()) as T;
+    }
+  } catch {
+    /* get fallback */
+  }
+  try {
+    const blob = await getBoothBlob(pathname, false);
+    if (!blob?.stream) return null;
+    return JSON.parse(await new Response(blob.stream).text()) as T;
+  } catch {
+    return null;
+  }
+}
+
 export async function savePhoto(record: PhotoRecord) {
-  return mutateState((state) => {
-    state.photos[record.id] = record;
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    await putBoothBlob(photoMetaPath(record.id), JSON.stringify(record), "application/json");
+  }
+  try {
+    return await mutateState((state) => {
+      state.photos[record.id] = record;
+      return record;
+    });
+  } catch {
     return record;
-  });
+  }
 }
 
 export async function getPhoto(id: string) {
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const meta = await readJsonBlob<PhotoRecord>(photoMetaPath(id));
+    if (meta?.id) return meta;
+  }
   const state = await getState();
   return state.photos[id] ?? null;
 }
 
 export async function listPhotos(roomCode?: string) {
-  const state = await getState();
-  const photos = Object.values(state.photos).sort((a, b) =>
-    a.createdAt < b.createdAt ? 1 : -1,
-  );
+  let photos: PhotoRecord[] = [];
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const listed = await listBoothBlobs("meta/photos/");
+      const loaded = await Promise.all(
+        listed.blobs.map(async (item) => {
+          try {
+            const res = await fetch(item.url, { cache: "no-store" });
+            if (!res.ok) return null;
+            return (await res.json()) as PhotoRecord;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      photos = loaded.filter((item): item is PhotoRecord => Boolean(item?.id));
+    } catch {
+      photos = [];
+    }
+  }
+  if (photos.length === 0) {
+    const state = await getState();
+    photos = Object.values(state.photos);
+  }
+  photos.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   return roomCode ? photos.filter((photo) => photo.roomCode === roomCode) : photos;
 }
 
 export async function deletePhoto(id: string) {
+  const existing = await getPhoto(id);
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const { del } = await import("@vercel/blob");
+      await del(photoMetaPath(id));
+      if (existing?.blobUrl) await del(existing.blobUrl);
+    } catch {
+      /* ignore */
+    }
+  }
   return mutateState(async (state) => {
-    const photo = state.photos[id];
+    const photo = state.photos[id] ?? existing;
     if (!photo) return null;
     delete state.photos[id];
     if (photo.localPath) {
@@ -249,14 +346,6 @@ export async function deletePhoto(id: string) {
         await unlink(photo.localPath);
       } catch {
         /* already gone */
-      }
-    }
-    if (photo.blobUrl) {
-      try {
-        const { del } = await import("@vercel/blob");
-        await del(photo.blobUrl);
-      } catch {
-        /* ignore */
       }
     }
     return photo;
@@ -304,32 +393,60 @@ function logoExt(mime: string) {
 }
 
 export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
-  await mutateState(async (state) => {
-    const record: LogoRecord = { mimeType };
-    try {
-      const blob = await putBoothBlob(
-        `logos/${code}.${logoExt(mimeType)}`,
-        bytes,
-        mimeType,
-      );
-      record.blobUrl = blob.url;
-    } catch {
-      if (process.env.VERCEL !== "1") {
-        await mkdir(LOGOS_DIR, { recursive: true });
-        const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
-        await writeFile(filePath, bytes);
-        record.localPath = filePath;
-      } else {
-        record.dataBase64 = bytes.toString("base64");
-      }
+  const record: LogoRecord = { mimeType };
+  try {
+    const blob = await putBoothBlob(
+      `logos/${code}.${logoExt(mimeType)}`,
+      bytes,
+      mimeType,
+    );
+    record.blobUrl = blob.url;
+  } catch {
+    if (process.env.VERCEL !== "1") {
+      await mkdir(LOGOS_DIR, { recursive: true });
+      const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
+      await writeFile(filePath, bytes);
+      record.localPath = filePath;
+    } else {
+      record.dataBase64 = bytes.toString("base64");
     }
-    state.logos = state.logos ?? {};
-    state.logos[code] = record;
-    return record;
-  });
+  }
+  if (useBlob()) {
+    await putBoothBlob(logoMetaPath(code), JSON.stringify(record), "application/json");
+  }
+  try {
+    await mutateState(async (state) => {
+      state.logos = state.logos ?? {};
+      state.logos[code] = record;
+      return record;
+    });
+  } catch {
+    /* meta blob is enough */
+  }
+  return record;
 }
 
 async function getLogoRecord(code: string) {
+  if (useBlob()) {
+    const meta = await readJsonBlob<LogoRecord>(logoMetaPath(code));
+    if (meta?.mimeType) return meta;
+    try {
+      const listed = await listBoothBlobs(`logos/${code}`);
+      const hit = listed.blobs.find((item) => !item.pathname.includes("meta/"));
+      if (hit?.url) {
+        const mimeType = hit.pathname.endsWith(".png")
+          ? "image/png"
+          : hit.pathname.endsWith(".webp")
+            ? "image/webp"
+            : hit.pathname.endsWith(".gif")
+              ? "image/gif"
+              : "image/jpeg";
+        return { mimeType, blobUrl: hit.url } satisfies LogoRecord;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
   const state = await getState();
   return state.logos[code] ?? null;
 }
@@ -357,21 +474,23 @@ export async function readLogo(code: string) {
 }
 
 export async function deleteLogo(code: string) {
+  const existing = await getLogoRecord(code);
+  if (useBlob()) {
+    try {
+      const { del } = await import("@vercel/blob");
+      await del(logoMetaPath(code));
+      if (existing?.blobUrl) await del(existing.blobUrl);
+    } catch {
+      /* ignore */
+    }
+  }
   return mutateState(async (state) => {
-    const record = state.logos[code];
+    const record = state.logos[code] ?? existing;
     if (!record) return null;
     delete state.logos[code];
     if (record.localPath) {
       try {
         await unlink(record.localPath);
-      } catch {
-        /* ignore */
-      }
-    }
-    if (record.blobUrl) {
-      try {
-        const { del } = await import("@vercel/blob");
-        await del(record.blobUrl);
       } catch {
         /* ignore */
       }

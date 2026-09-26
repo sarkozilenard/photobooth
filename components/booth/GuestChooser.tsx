@@ -10,6 +10,7 @@ import {
   FRAMES,
   FramePreset,
   LAYOUTS,
+  canUseGrid,
 } from "@/lib/booth/guest-presets";
 import { FrameStyle, LayoutStyle } from "@/lib/types";
 
@@ -27,6 +28,7 @@ export function GuestChooser({
   aspectId,
   aspectRatio,
   poster,
+  dense = false,
   onExperience,
   onLayout,
   onFrame,
@@ -40,25 +42,26 @@ export function GuestChooser({
   aspectId: string;
   aspectRatio: number | null;
   poster?: string;
-  sounds?: boolean;
-  flash?: boolean;
+  dense?: boolean;
   onExperience: (preset: ExperiencePreset) => void;
   onLayout: (layout: LayoutStyle) => void;
   onFrame: (preset: FramePreset) => void;
   onCountdown: (seconds: number) => void;
   onAspect: (preset: AspectPreset) => void;
-  onSounds?: (value: boolean) => void;
-  onFlash?: (value: boolean) => void;
 }) {
+  const layouts = LAYOUTS.filter(
+    (preset) => preset.id === "strip" || canUseGrid(photos),
+  );
+
   return (
-    <div className="flex w-full max-w-5xl flex-col gap-1.5">
+    <div className={`flex w-full flex-col ${dense ? "gap-1.5" : "gap-2"}`}>
       <div className="flex flex-wrap justify-center gap-1.5">
         {EXPERIENCES.map((preset) => (
           <button
             key={preset.id}
             type="button"
             onClick={() => onExperience(preset)}
-            className={`min-h-10 rounded-full px-4 text-xs font-semibold ${chip(preset.photos === photos)}`}
+            className={`min-h-10 rounded-full px-3 text-xs font-semibold ${chip(preset.photos === photos)}`}
             aria-pressed={preset.photos === photos}
           >
             {preset.label}
@@ -67,7 +70,7 @@ export function GuestChooser({
       </div>
       {photos > 1 ? (
         <div className="flex justify-center gap-3 py-1">
-          {LAYOUTS.map((preset) => (
+          {layouts.map((preset) => (
             <LayoutMock
               key={preset.id}
               photos={photos}
@@ -88,7 +91,7 @@ export function GuestChooser({
             key={preset.id}
             type="button"
             onClick={() => onFrame(preset)}
-            className={`min-h-10 rounded-full px-4 text-xs font-semibold ${chip(preset.id === frame)}`}
+            className={`min-h-10 rounded-full px-3 text-xs font-semibold ${chip(preset.id === frame)}`}
             aria-pressed={preset.id === frame}
           >
             {preset.label}
@@ -120,15 +123,6 @@ export function GuestChooser({
             {seconds} mp
           </button>
         ))}
-        <input
-          type="range"
-          min={1}
-          max={20}
-          value={countdown}
-          className="h-9 w-32 accent-[#c4a35a] sm:w-44"
-          aria-label="Időzítő"
-          onChange={(e) => onCountdown(Number(e.target.value))}
-        />
       </div>
     </div>
   );

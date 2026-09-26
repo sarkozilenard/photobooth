@@ -38,14 +38,25 @@ export function AdminApp() {
     setAuthed(true);
   }
 
-  async function load() {
-    const query = room ? `?room=${room.toUpperCase()}` : "";
+  async function load(code = room) {
+    setError("");
+    const booth = code.trim().toUpperCase();
+    const query = booth ? `?room=${booth}` : "";
     const res = await fetch(`/api/photos${query}`);
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error || "A fotók nem tölthetők be. Jelentkezz be újra.");
+      setPhotos([]);
+      return;
+    }
     setPhotos(data.photos ?? []);
-    if (room) {
-      const s = await fetch(`/api/settings?room=${room.toUpperCase()}`);
-      const json = await s.json();
+    if (booth) {
+      const s = await fetch(`/api/settings?room=${booth}`);
+      const json = await s.json().catch(() => ({}));
+      if (!s.ok) {
+        setError(json.error || "A beállítások nem tölthetők be.");
+        return;
+      }
       setSettings({ ...DEFAULT_SETTINGS, ...json.settings });
     }
   }
@@ -58,11 +69,18 @@ export function AdminApp() {
   async function saveSettings(event: FormEvent) {
     event.preventDefault();
     if (!settings || !room) return;
-    await fetch("/api/settings", {
+    setError("");
+    const res = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room: room.toUpperCase(), settings }),
     });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setError(data.error || "A beállítások mentése nem sikerült");
+      return;
+    }
+    if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
   }
 
   async function uploadLogo(file: File | null) {
@@ -142,12 +160,27 @@ export function AdminApp() {
           </button>
         </header>
 
-        <form className="flex flex-wrap gap-3" onSubmit={(e) => { e.preventDefault(); void load(); }}>
+        {error && !settings ? (
+          <p className="text-sm text-red-300">{error}</p>
+        ) : null}
+
+        <form
+          className="flex flex-wrap gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const booth = String(new FormData(e.currentTarget).get("room") || "")
+              .trim()
+              .toUpperCase();
+            setRoom(booth);
+            void load(booth);
+          }}
+        >
           <label className="sr-only" htmlFor="room-filter">
             Booth kód
           </label>
           <input
             id="room-filter"
+            name="room"
             value={room}
             onChange={(e) => setRoom(e.target.value.toUpperCase())}
             placeholder="BOOTH KÓD"
@@ -207,7 +240,7 @@ export function AdminApp() {
               <input
                 type="range"
                 min={1}
-                max={4}
+                max={6}
                 step={1}
                 value={settings.photosPerRound}
                 className="accent-[#c4a35a]"
@@ -347,6 +380,11 @@ export function AdminApp() {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {photos.length === 0 ? (
+            <p className="text-sm text-white/50 sm:col-span-2 lg:col-span-3">
+              Még nincs fotó. Fotózz a booth-on, majd nyomj Szűrés-t.
+            </p>
+          ) : null}
           {photos.map((photo) => (
             <article
               key={photo.id}
@@ -356,15 +394,23 @@ export function AdminApp() {
               <img
                 src={`/api/photos/${photo.id}/file?t=${photo.token}`}
                 alt=""
-                className="aspect-[4/3] w-full object-cover"
+                className="aspect-[4/3] w-full bg-black object-contain"
               />
               <div className="flex items-center justify-between gap-2 p-4 text-xs text-white/70">
-                <span>{photo.status}</span>
+                <span>{photo.roomCode}</span>
                 <span>{new Date(photo.createdAt).toLocaleString("hu-HU")}</span>
               </div>
-              <div className="flex gap-2 px-4 pb-4">
+              <div className="flex flex-wrap gap-2 px-4 pb-4">
                 <a
                   className="rounded-full bg-white px-4 py-2 text-xs font-semibold tracking-[0.2em] text-black uppercase"
+                  href={`/p/${photo.id}?t=${photo.token}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Megnyitás
+                </a>
+                <a
+                  className="rounded-full border border-white/20 px-4 py-2 text-xs tracking-[0.2em] uppercase"
                   href={`/api/photos/${photo.id}/file?t=${photo.token}`}
                   download
                 >
