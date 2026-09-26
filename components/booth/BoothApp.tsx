@@ -68,7 +68,6 @@ export function BoothApp({
       const peer = await startBoothLive({
         code,
         onStream: (stream) => {
-          liveRef.current = true;
           void attachStream(video, stream);
           setCameraOnline(true);
         },
