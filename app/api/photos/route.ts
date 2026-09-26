@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
   const captureId = String(form.get("captureId") || "");
   const photoId = String(form.get("photoId") || createId());
 
-  if (!(file instanceof File)) {
+  if (!(file instanceof Blob)) {
     return NextResponse.json({ error: "Hiányzó fájl" }, { status: 400 });
   }
   if (!roomCode) {

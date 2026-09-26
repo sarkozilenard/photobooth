@@ -6,7 +6,7 @@ import { LookStrip } from "@/components/booth/LookGrid";
 import { LookOverlay } from "@/components/booth/LookOverlay";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
-import { FRAMES } from "@/lib/booth/guest-presets";
+import { ASPECTS, AspectPreset, FRAMES, LAYOUTS } from "@/lib/booth/guest-presets";
 import { createRingLightDriver } from "@/lib/hardware/ring-light";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings, DEFAULT_SETTINGS, FrameStyle, LayoutStyle, PhotoRecord } from "@/lib/types";
@@ -37,6 +37,9 @@ export function BoothApp({
   const [layoutStyle, setLayoutStyle] = useState<LayoutStyle>("strip");
   const [frameStyle, setFrameStyle] = useState<FrameStyle>("booth");
   const [countdownSeconds, setCountdownSeconds] = useState(3);
+  const [aspect, setAspect] = useState<AspectPreset>(ASPECTS[0]);
+  const aspectRef = useRef(aspect);
+  aspectRef.current = aspect;
   const [soundsEnabled, setSoundsEnabled] = useState(true);
   const [flashEnabled, setFlashEnabled] = useState(true);
   const guestSeeded = useRef(false);
@@ -162,6 +165,7 @@ export function BoothApp({
         captureId,
         quality: settings?.jpegQuality ?? 0.92,
         maxEdge: settings?.maxEdge ?? 2560,
+        aspectRatio: aspectRef.current.ratio,
       },
       lookRef.current,
     );
@@ -235,13 +239,8 @@ export function BoothApp({
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(strip);
       });
+      setPhoto(null);
       setPhase("preview");
-      const form = new FormData();
-      form.set("file", strip, "session.jpg");
-      form.set("roomCode", code);
-      const res = await fetch("/api/photos", { method: "POST", body: form });
-      const data = await res.json().catch(() => ({}));
-      if (data.photo) setPhoto(data.photo);
     } finally {
       sessionRef.current = false;
       setBusy(false);
@@ -273,14 +272,16 @@ export function BoothApp({
     setLook(next);
   }
 
-  async function recompose(nextFrame?: FrameStyle) {
+  async function recompose(patch?: { frame?: FrameStyle; layout?: LayoutStyle }) {
     if (shotsRef.current.length === 0) return;
-    const style = nextFrame ?? frameStyle;
-    if (nextFrame) setFrameStyle(nextFrame);
+    const style = patch?.frame ?? frameStyle;
+    const layout = patch?.layout ?? layoutStyle;
+    if (patch?.frame) setFrameStyle(patch.frame);
+    if (patch?.layout) setLayoutStyle(patch.layout);
     const current = {
       ...(settings ?? DEFAULT_SETTINGS),
       frameStyle: style,
-      layoutStyle,
+      layoutStyle: layout,
     };
     const logo = await loadRoomLogo(code, current.hasLogo);
     const strip = await composeSession(shotsRef.current, current, logo);
@@ -303,51 +304,18 @@ export function BoothApp({
   }
 
   const title = settings?.name || "PHOTO BOOTH";
+  const stageStyle = aspect.ratio
+    ? {
+        aspectRatio: String(aspect.ratio),
+        height: "100%",
+        width: "auto",
+        maxWidth: "100%",
+      }
+    : { height: "100%", width: "100%", maxWidth: "100%" };
 
   return (
-    <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
-      <div
-        className={`relative absolute inset-0 flex items-center justify-center bg-black transition duration-500 ${
-          phase === "preview" ? "opacity-0" : "opacity-100"
-        }`}
-      >
-        <video
-          ref={videoRef}
-          className="h-full w-full object-contain"
-          style={{ filter: look.filter }}
-          playsInline
-          muted
-          autoPlay
-        />
-        {phase !== "preview" ? <LookOverlay look={look} /> : null}
-      </div>
-
-      {(photo || previewUrl) && phase === "preview" ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={
-            previewUrl ||
-            `/api/photos/${photo?.id}/file?t=${photo?.token}`
-          }
-          alt="Elkészült fotó"
-          className="absolute inset-0 h-full w-full object-contain bg-black"
-        />
-      ) : null}
-
-      {flash ? <div className="absolute inset-0 z-20 bg-white/90 animate-[pulse_140ms_ease-out]" /> : null}
-
-      {phase === "countdown" && count ? (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
-          {shotLabel ? (
-            <p className="mb-2 text-sm tracking-[0.4em] text-[#c4a35a]">{shotLabel}</p>
-          ) : null}
-          <span className="font-serif text-[30vw] leading-none text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.35)]">
-            {count}
-          </span>
-        </div>
-      ) : null}
-
-      <header className="absolute left-0 right-0 top-0 z-20 flex items-start justify-between p-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
+    <div className="flex h-[100dvh] w-full flex-col overflow-hidden bg-black text-white">
+      <header className="flex shrink-0 items-start justify-between px-5 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div
           onPointerDown={beginOperatorHold}
           onPointerUp={endOperatorHold}
@@ -355,46 +323,90 @@ export function BoothApp({
           onPointerLeave={endOperatorHold}
         >
           <p className="text-xs tracking-[0.5em] text-[#c4a35a]">{title}</p>
-          <p className="mt-2 text-xs uppercase tracking-[0.25em] text-white/50">
+          <p className="mt-1 text-xs text-white/50">
             {cameraOnline
-              ? `${photosPerRound} fotó · ${look.label} · ${countdownSeconds} mp`
+              ? `${photosPerRound} fotó · ${look.label} · ${aspect.label} · ${countdownSeconds} mp`
               : "Kamera várakozik"}
             {` · ${connection}`}
           </p>
         </div>
         <div
-          className={`h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
+          className={`mt-1 h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
           aria-label={cameraOnline ? "Kamera csatlakozva" : "Kamera nincs csatlakozva"}
         />
       </header>
 
-      {!cameraOnline && phase !== "preview" ? (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/50 p-8 text-center">
-          <p className="font-serif text-4xl">Kamera csatlakoztatása</p>
-          <p className="max-w-md text-white/70">
-            Nyisd meg az iPhone-on a kamera oldalt, és engedélyezd a kamerát.
-          </p>
-          <p className="rounded-full border border-white/20 px-5 py-2 tracking-[0.4em]">
-            {code}
-          </p>
+      <div className="relative flex min-h-0 flex-1 items-center justify-center px-3">
+        <div
+          className={`relative max-h-full max-w-full ${phase === "preview" ? "hidden" : ""}`}
+          style={stageStyle}
+        >
+          <video
+            ref={videoRef}
+            className="h-full w-full bg-black object-contain"
+            style={{ filter: look.filter }}
+            playsInline
+            muted
+            autoPlay
+          />
+          <LookOverlay look={look} />
         </div>
-      ) : null}
+        {phase === "preview" ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={
+              previewUrl ||
+              `/api/photos/${photo?.id}/file?t=${photo?.token}`
+            }
+            alt="Elkészült fotó"
+            className="max-h-full max-w-full object-contain"
+          />
+        ) : null}
+
+        {flash ? <div className="absolute inset-0 z-20 bg-white/90" /> : null}
+
+        {phase === "countdown" && count ? (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
+            {shotLabel ? (
+              <p className="mb-2 text-sm tracking-[0.4em] text-[#c4a35a]">{shotLabel}</p>
+            ) : null}
+            <span className="font-serif text-[22vh] leading-none text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.35)]">
+              {count}
+            </span>
+          </div>
+        ) : null}
+
+        {!cameraOnline && phase !== "preview" ? (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/70 p-8 text-center">
+            <p className="font-serif text-4xl">Kamera csatlakoztatása</p>
+            <p className="max-w-md text-white/70">
+              Nyisd meg az iPhone-on a kamera oldalt, és engedélyezd a kamerát.
+            </p>
+            <p className="rounded-full border border-white/20 px-5 py-2 tracking-[0.4em]">
+              {code}
+            </p>
+          </div>
+        ) : null}
+      </div>
 
       {phase === "live" && cameraOnline && !busy ? (
-        <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent pt-10">
-          <div className="flex flex-col items-center gap-3 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+        <div className="shrink-0 bg-black px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="flex flex-col items-center gap-3">
             <LookStrip stream={stream} selectedId={look.id} onSelect={pickLook} />
             <GuestChooser
               photos={photosPerRound}
               layout={layoutStyle}
               frame={frameStyle}
               countdown={countdownSeconds}
+              aspectId={aspect.id}
               onExperience={(preset) => {
                 setPhotosPerRound(preset.photos);
-                setLayoutStyle(preset.layout);
+                if (preset.photos === 1) setLayoutStyle("strip");
               }}
+              onLayout={setLayoutStyle}
               onFrame={(preset) => setFrameStyle(preset.id)}
               onCountdown={setCountdownSeconds}
+              onAspect={setAspect}
             />
             <KioskButton
               className="min-h-16 min-w-[16rem] text-xl"
@@ -408,10 +420,26 @@ export function BoothApp({
       ) : null}
 
       {phase === "preview" && (photo || localFile) ? (
-        <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center gap-3 bg-gradient-to-t from-black via-black/90 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6">
+        <div className="flex shrink-0 flex-col items-center gap-3 bg-black px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3">
           <p className="text-[11px] tracking-[0.28em] text-[#c4a35a] uppercase">
-            Sablon a kész fotón
+            Keret és elrendezés
           </p>
+          {shotUrls.length > 1 ? (
+            <div className="flex max-w-full gap-2 overflow-x-auto">
+              {LAYOUTS.map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={`min-h-12 shrink-0 rounded-full px-4 text-sm font-semibold ${
+                    layoutStyle === preset.id ? "bg-white text-black" : "bg-white/15"
+                  }`}
+                  onClick={() => void recompose({ layout: preset.id })}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <div className="flex max-w-full gap-2 overflow-x-auto">
             {FRAMES.map((preset) => (
               <button
@@ -420,7 +448,7 @@ export function BoothApp({
                 className={`min-h-12 shrink-0 rounded-full px-4 text-sm font-semibold ${
                   frameStyle === preset.id ? "bg-white text-black" : "bg-white/15"
                 }`}
-                onClick={() => void recompose(preset.id)}
+                onClick={() => void recompose({ frame: preset.id })}
               >
                 {preset.label}
               </button>

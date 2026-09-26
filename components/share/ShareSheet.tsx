@@ -15,6 +15,22 @@ async function makeQr(record: PhotoRecord) {
   return { url, qr };
 }
 
+async function readError(res: Response) {
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text) as { error?: unknown };
+    if (typeof data.error === "string" && data.error.trim()) return data.error;
+  } catch {
+    /* HTML / üres válasz */
+  }
+  if (res.status === 413) return "A fotó túl nagy a feltöltéshez.";
+  if (res.status === 404) return "A booth nem található. Frissítsd az oldalt.";
+  if (res.status === 503) {
+    return "A QR-hez Vercel Blob kell: Vercel → Storage → Blob → Connect, majd Redeploy.";
+  }
+  return text.trim().slice(0, 180) || `Feltöltés sikertelen (${res.status}).`;
+}
+
 export function ShareSheet({
   photo,
   file,
@@ -32,34 +48,38 @@ export function ShareSheet({
 }) {
   const [qr, setQr] = useState<string | null>(null);
   const [status, setStatus] = useState("QR készítése…");
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
     async function prepare() {
+      setQr(null);
+      setStatus("Feltöltés…");
       let record = photo;
       if (!record && file) {
+        const upload = new File([file], "photobooth.jpg", {
+          type: file.type || "image/jpeg",
+        });
         const form = new FormData();
-        form.set("file", file, "photobooth.jpg");
+        form.set("file", upload);
         form.set("roomCode", roomCode);
         if (captureId) form.set("captureId", captureId);
         const res = await fetch("/api/photos", { method: "POST", body: form });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.photo) {
-          if (!cancelled) {
-            setStatus(
-              typeof data.error === "string"
-                ? data.error
-                : "A fotó még nem tölthető fel. Próbáld újra.",
-            );
-          }
+        if (!res.ok) {
+          if (!cancelled) setStatus(await readError(res));
           return;
         }
-        record = data.photo as PhotoRecord;
+        const data = (await res.json().catch(() => ({}))) as { photo?: PhotoRecord };
+        if (!data.photo) {
+          if (!cancelled) setStatus("A szerver nem adta vissza a fotót. Próbáld újra.");
+          return;
+        }
+        record = data.photo;
         onPhoto?.(record);
       }
       if (!record) {
-        if (!cancelled) setStatus("A fotó még nem elérhető.");
+        if (!cancelled) setStatus("Előbb készíts fotót, aztán nyisd meg a QR-t.");
         return;
       }
       try {
@@ -79,7 +99,7 @@ export function ShareSheet({
     };
     // onPhoto szándékosan kimarad: a parent state frissítése ne indítsa újra a feltöltést
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo, file, roomCode, captureId]);
+  }, [photo, file, roomCode, captureId, retry]);
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6 backdrop-blur-md">
@@ -98,9 +118,16 @@ export function ShareSheet({
         <p className="max-w-sm text-center text-base text-white/70">
           {status || "Olvasd be a telefonoddal, és töltsd le a fotót."}
         </p>
-        <KioskButton variant="ghost" onClick={onClose}>
-          Kész
-        </KioskButton>
+        <div className="flex flex-wrap justify-center gap-3">
+          {!qr ? (
+            <KioskButton variant="gold" onClick={() => setRetry((n) => n + 1)}>
+              Újra
+            </KioskButton>
+          ) : null}
+          <KioskButton variant="ghost" onClick={onClose}>
+            Kész
+          </KioskButton>
+        </div>
       </div>
     </div>
   );

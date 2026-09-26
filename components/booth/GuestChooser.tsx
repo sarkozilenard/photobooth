@@ -1,11 +1,14 @@
 "use client";
 
 import {
+  ASPECTS,
+  AspectPreset,
   COUNTDOWNS,
   EXPERIENCES,
   ExperiencePreset,
   FRAMES,
   FramePreset,
+  LAYOUTS,
 } from "@/lib/booth/guest-presets";
 import { FrameStyle, LayoutStyle } from "@/lib/types";
 
@@ -20,19 +23,25 @@ export function GuestChooser({
   layout,
   frame,
   countdown,
+  aspectId,
   onExperience,
+  onLayout,
   onFrame,
   onCountdown,
+  onAspect,
 }: {
   photos: number;
   layout: LayoutStyle;
   frame: FrameStyle;
   countdown: number;
+  aspectId: string;
   sounds?: boolean;
   flash?: boolean;
   onExperience: (preset: ExperiencePreset) => void;
+  onLayout: (layout: LayoutStyle) => void;
   onFrame: (preset: FramePreset) => void;
   onCountdown: (seconds: number) => void;
+  onAspect: (preset: AspectPreset) => void;
   onSounds?: (value: boolean) => void;
   onFlash?: (value: boolean) => void;
 }) {
@@ -40,7 +49,7 @@ export function GuestChooser({
     <div className="flex w-full max-w-5xl flex-col gap-3">
       <div className="flex flex-wrap justify-center gap-2">
         {EXPERIENCES.map((preset) => {
-          const on = preset.photos === photos && preset.layout === layout;
+          const on = preset.photos === photos;
           return (
             <button
               key={preset.id}
@@ -54,6 +63,21 @@ export function GuestChooser({
           );
         })}
       </div>
+      {photos > 1 ? (
+        <div className="flex flex-wrap justify-center gap-2">
+          {LAYOUTS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => onLayout(preset.id)}
+              className={`min-h-12 rounded-full px-5 text-sm font-semibold ${chip(preset.id === layout)}`}
+              aria-pressed={preset.id === layout}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="flex flex-wrap justify-center gap-2">
         {FRAMES.map((preset) => (
           <button
@@ -62,6 +86,19 @@ export function GuestChooser({
             onClick={() => onFrame(preset)}
             className={`min-h-12 rounded-full px-5 text-sm font-semibold ${chip(preset.id === frame)}`}
             aria-pressed={preset.id === frame}
+          >
+            {preset.label}
+          </button>
+        ))}
+      </div>
+      <div className="flex flex-wrap justify-center gap-2">
+        {ASPECTS.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => onAspect(preset)}
+            className={`min-h-12 rounded-full px-4 text-sm font-semibold ${chip(preset.id === aspectId)}`}
+            aria-pressed={preset.id === aspectId}
           >
             {preset.label}
           </button>

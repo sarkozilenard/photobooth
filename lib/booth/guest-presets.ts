@@ -29,6 +29,26 @@ export const FRAMES: FramePreset[] = [
 
 export const COUNTDOWNS = [3, 5, 10, 20] as const;
 
+export interface AspectPreset {
+  id: string;
+  label: string;
+  ratio: number | null;
+}
+
+export const ASPECTS: AspectPreset[] = [
+  { id: "native", label: "Eredeti", ratio: null },
+  { id: "1-1", label: "1:1", ratio: 1 },
+  { id: "4-5", label: "4:5", ratio: 4 / 5 },
+  { id: "3-2", label: "3:2", ratio: 3 / 2 },
+  { id: "16-9", label: "16:9", ratio: 16 / 9 },
+  { id: "9-16", label: "9:16", ratio: 9 / 16 },
+];
+
+export const LAYOUTS: { id: LayoutStyle; label: string }[] = [
+  { id: "strip", label: "Csík" },
+  { id: "grid", label: "Rács" },
+];
+
 export function matchExperience(photos: number, layout: LayoutStyle) {
   return (
     EXPERIENCES.find((item) => item.photos === photos && item.layout === layout) ??

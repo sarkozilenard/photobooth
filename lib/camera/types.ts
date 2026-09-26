@@ -11,4 +11,5 @@ export interface CaptureRequest {
   captureId: string;
   quality: number;
   maxEdge: number;
+  aspectRatio?: number | null;
 }

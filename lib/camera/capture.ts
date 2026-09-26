@@ -46,21 +46,41 @@ export async function captureFromVideo(
   request: CaptureRequest,
   look?: BoothLook,
 ) {
-  const width = video.videoWidth || 1280;
-  const height = video.videoHeight || 720;
-  const scale = Math.min(1, request.maxEdge / Math.max(width, height));
+  const srcW = video.videoWidth || 1280;
+  const srcH = video.videoHeight || 720;
+  const aspect = request.aspectRatio;
+  let width: number;
+  let height: number;
+  if (aspect && aspect > 0) {
+    if (aspect >= 1) {
+      width = Math.min(request.maxEdge, 1920);
+      height = Math.round(width / aspect);
+    } else {
+      height = Math.min(request.maxEdge, 1920);
+      width = Math.round(height * aspect);
+    }
+  } else {
+    const scale = Math.min(1, request.maxEdge / Math.max(srcW, srcH));
+    width = Math.round(srcW * scale);
+    height = Math.round(srcH * scale);
+  }
   const canvas = document.createElement("canvas");
-  canvas.width = Math.round(width * scale);
-  canvas.height = Math.round(height * scale);
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Nincs canvas");
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000000";
+  ctx.fillRect(0, 0, width, height);
+  const fit = Math.min(width / srcW, height / srcH);
+  const dw = srcW * fit;
+  const dh = srcH * fit;
+  ctx.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh);
   if (look) {
     try {
       bakeLook(ctx, canvas.width, canvas.height, look);
     } catch {
       ctx.filter = look.filter !== "none" ? look.filter : "none";
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh);
       ctx.filter = "none";
     }
   }
