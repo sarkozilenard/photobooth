@@ -190,7 +190,7 @@ export function AdminApp() {
               <input
                 type="range"
                 min={1}
-                max={10}
+                max={20}
                 step={1}
                 value={settings.countdownSeconds}
                 className="accent-[#c4a35a]"

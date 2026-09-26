@@ -1,5 +1,3 @@
-import { FrameStyle } from "@/lib/types";
-
 export type LookOverlay = "none" | "vignette" | "grain" | "paper";
 
 export interface BoothLook {
@@ -148,4 +146,87 @@ export function paintLookOverlay(
   glow.addColorStop(1, "rgba(0,0,0,0.5)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, width, height);
+}
+
+function clamp(v: number) {
+  return v < 0 ? 0 : v > 255 ? 255 : v;
+}
+
+function applyTone(r: number, g: number, b: number, contrast: number, brightness: number) {
+  const c = contrast;
+  const br = brightness;
+  return {
+    r: clamp(((r / 255 - 0.5) * c + 0.5) * br * 255),
+    g: clamp(((g / 255 - 0.5) * c + 0.5) * br * 255),
+    b: clamp(((b / 255 - 0.5) * c + 0.5) * br * 255),
+  };
+}
+
+export function bakeLook(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  look: BoothLook,
+) {
+  if (look.id === "original") {
+    paintLookOverlay(ctx, width, height, look.overlay);
+    return;
+  }
+  const img = ctx.getImageData(0, 0, width, height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i];
+    let g = d[i + 1];
+    let b = d[i + 2];
+    if (look.id === "booth" || look.id === "softbw") {
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      r = g = b = y;
+      const tone = applyTone(r, g, b, look.id === "booth" ? 1.42 : 1.12, look.id === "booth" ? 1.06 : 1.1);
+      r = tone.r;
+      g = tone.g;
+      b = tone.b;
+    } else if (look.id === "sepia") {
+      const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      r = y;
+      g = y;
+      b = y;
+      const tone = applyTone(r, g, b, 1.28, 1.08);
+      r = clamp(tone.r * 1.15);
+      g = clamp(tone.g * 1.02);
+      b = clamp(tone.b * 0.72);
+    } else if (look.id === "pop") {
+      const tone = applyTone(r, g, b, 1.28, 1.04);
+      r = clamp(tone.r * 1.12);
+      g = clamp(tone.g * 1.08);
+      b = clamp(tone.b * 1.04);
+    } else if (look.id === "cool") {
+      const tone = applyTone(r, g, b, 1.08, 1.05);
+      r = clamp(tone.r * 0.9);
+      g = clamp(tone.g * 0.98);
+      b = clamp(tone.b * 1.12);
+    } else if (look.id === "glam") {
+      const tone = applyTone(r, g, b, 0.92, 1.12);
+      r = tone.r;
+      g = tone.g;
+      b = tone.b;
+    } else if (look.id === "neon") {
+      const tone = applyTone(r, g, b, 1.2, 1);
+      r = clamp(tone.r * 1.15);
+      g = clamp(tone.g * 0.9);
+      b = clamp(tone.b * 1.2);
+    } else if (look.id === "xray") {
+      r = 255 - r;
+      g = 255 - g;
+      b = 255 - b;
+      const tone = applyTone(r, g, b, 1.15, 1);
+      r = tone.b;
+      g = tone.g;
+      b = tone.r;
+    }
+    d[i] = r;
+    d[i + 1] = g;
+    d[i + 2] = b;
+  }
+  ctx.putImageData(img, 0, 0);
+  paintLookOverlay(ctx, width, height, look.overlay);
 }

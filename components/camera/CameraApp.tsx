@@ -121,7 +121,7 @@ export function CameraApp({ code }: { code: string }) {
 
     if (action === "start-countdown") {
       await resumeAudio();
-      const seconds = Math.min(10, Math.max(1, value ?? 3));
+      const seconds = Math.min(20, Math.max(1, value ?? 3));
       for (let n = seconds; n >= 1; n -= 1) {
         setCount(n);
         if (settings?.soundsEnabled !== false) playCountdownBeep(n);

@@ -190,7 +190,7 @@ export async function updateSettings(
       ...current,
       ...patch,
       countdownSeconds: Math.min(
-        10,
+        20,
         Math.max(1, Math.round(patch.countdownSeconds ?? current.countdownSeconds)),
       ),
       photosPerRound: Math.min(

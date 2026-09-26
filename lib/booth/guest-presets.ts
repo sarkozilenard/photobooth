@@ -10,9 +10,8 @@ export interface ExperiencePreset {
 
 export const EXPERIENCES: ExperiencePreset[] = [
   { id: "solo", label: "1 fotó", hint: "Egy portré", photos: 1, layout: "strip" },
-  { id: "strip3", label: "3-as csík", hint: "Klasszikus booth", photos: 3, layout: "strip" },
-  { id: "strip4", label: "4-es csík", hint: "Hosszú strip", photos: 4, layout: "strip" },
-  { id: "grid4", label: "4-es rács", hint: "Kollázs", photos: 4, layout: "grid" },
+  { id: "strip3", label: "3 fotó", hint: "Klasszikus booth", photos: 3, layout: "strip" },
+  { id: "strip4", label: "4 fotó", hint: "Hosszú csík", photos: 4, layout: "strip" },
 ];
 
 export interface FramePreset {
@@ -28,7 +27,7 @@ export const FRAMES: FramePreset[] = [
   { id: "minimal", label: "Minimal", hint: "Fekete" },
 ];
 
-export const COUNTDOWNS = [3, 5, 8, 10] as const;
+export const COUNTDOWNS = [3, 5, 10, 20] as const;
 
 export function matchExperience(photos: number, layout: LayoutStyle) {
   return (

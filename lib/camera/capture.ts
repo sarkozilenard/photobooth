@@ -1,5 +1,5 @@
 import { CaptureRequest } from "@/lib/camera/types";
-import { BoothLook, paintLookOverlay } from "@/lib/effects/looks";
+import { bakeLook, BoothLook } from "@/lib/effects/looks";
 
 export function cameraErrorMessage(error: unknown) {
   const name = error instanceof DOMException ? error.name : "";
@@ -54,10 +54,16 @@ export async function captureFromVideo(
   canvas.height = Math.round(height * scale);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Nincs canvas");
-  ctx.filter = look?.filter && look.filter !== "none" ? look.filter : "none";
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  ctx.filter = "none";
-  if (look) paintLookOverlay(ctx, canvas.width, canvas.height, look.overlay);
+  if (look) {
+    try {
+      bakeLook(ctx, canvas.width, canvas.height, look);
+    } catch {
+      ctx.filter = look.filter !== "none" ? look.filter : "none";
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.filter = "none";
+    }
+  }
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob((value) => resolve(value), "image/jpeg", request.quality),
   );

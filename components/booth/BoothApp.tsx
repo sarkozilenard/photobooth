@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GuestChooser } from "@/components/booth/GuestChooser";
-import { LookGrid, LookStrip } from "@/components/booth/LookGrid";
+import { LookStrip } from "@/components/booth/LookGrid";
 import { LookOverlay } from "@/components/booth/LookOverlay";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
@@ -29,8 +29,10 @@ export function BoothApp({
   const peerRef = useRef<LiveLink | null>(null);
   const seenRef = useRef(new Set<string>());
   const [settings, setSettings] = useState<BoothSettings | null>(null);
-  const [phase, setPhase] = useState<Phase>("attract");
+  const [phase, setPhase] = useState<Phase>("live");
   const [look, setLook] = useState<BoothLook>(DEFAULT_LOOK);
+  const lookRef = useRef(look);
+  lookRef.current = look;
   const [photosPerRound, setPhotosPerRound] = useState(3);
   const [layoutStyle, setLayoutStyle] = useState<LayoutStyle>("strip");
   const [frameStyle, setFrameStyle] = useState<FrameStyle>("booth");
@@ -161,7 +163,7 @@ export function BoothApp({
         quality: settings?.jpegQuality ?? 0.92,
         maxEdge: settings?.maxEdge ?? 2560,
       },
-      look,
+      lookRef.current,
     );
   }
 
@@ -249,7 +251,7 @@ export function BoothApp({
   }
 
   function reset() {
-    setPhase("attract");
+    setPhase("live");
     setPhoto(null);
     setLocalFile(null);
     shotsRef.current = [];
@@ -271,11 +273,13 @@ export function BoothApp({
     setLook(next);
   }
 
-  async function recompose() {
+  async function recompose(nextFrame?: FrameStyle) {
     if (shotsRef.current.length === 0) return;
+    const style = nextFrame ?? frameStyle;
+    if (nextFrame) setFrameStyle(nextFrame);
     const current = {
       ...(settings ?? DEFAULT_SETTINGS),
-      frameStyle,
+      frameStyle: style,
       layoutStyle,
     };
     const logo = await loadRoomLogo(code, current.hasLogo);
@@ -303,23 +307,20 @@ export function BoothApp({
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
       <div
-        className={`absolute inset-0 flex items-center justify-center bg-black transition duration-500 ${
+        className={`relative absolute inset-0 flex items-center justify-center bg-black transition duration-500 ${
           phase === "preview" ? "opacity-0" : "opacity-100"
         }`}
       >
         <video
           ref={videoRef}
           className="h-full w-full object-contain"
-          style={{ filter: phase === "attract" ? "none" : look.filter }}
+          style={{ filter: look.filter }}
           playsInline
           muted
           autoPlay
         />
-        {phase !== "attract" && phase !== "preview" ? (
-          <LookOverlay look={look} />
-        ) : null}
+        {phase !== "preview" ? <LookOverlay look={look} /> : null}
       </div>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_55%,rgba(0,0,0,0.35)_100%)]" />
 
       {(photo || previewUrl) && phase === "preview" ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -355,12 +356,10 @@ export function BoothApp({
         >
           <p className="text-xs tracking-[0.5em] text-[#c4a35a]">{title}</p>
           <p className="mt-2 text-xs uppercase tracking-[0.25em] text-white/50">
-            {phase === "attract"
-              ? "Állítsd be a boothot"
-              : cameraOnline
-                ? `${photosPerRound} fotó · ${look.label} · ${countdownSeconds}s`
-                : "Kamera várakozik"}
-            {phase !== "attract" ? ` · ${connection}` : ""}
+            {cameraOnline
+              ? `${photosPerRound} fotó · ${look.label} · ${countdownSeconds} mp`
+              : "Kamera várakozik"}
+            {` · ${connection}`}
           </p>
         </div>
         <div
@@ -381,63 +380,25 @@ export function BoothApp({
         </div>
       ) : null}
 
-      {phase === "attract" && cameraOnline ? (
-        <div className="absolute inset-0 z-10 overflow-y-auto bg-black/45 p-4 pt-24 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6 sm:pt-28">
-          <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-            <p className="font-serif text-3xl sm:text-5xl">Te választasz</p>
+      {phase === "live" && cameraOnline && !busy ? (
+        <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black/80 to-transparent pt-10">
+          <div className="flex flex-col items-center gap-3 px-3 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <LookStrip stream={stream} selectedId={look.id} onSelect={pickLook} />
             <GuestChooser
               photos={photosPerRound}
               layout={layoutStyle}
               frame={frameStyle}
               countdown={countdownSeconds}
-              sounds={soundsEnabled}
-              flash={flashEnabled}
               onExperience={(preset) => {
                 setPhotosPerRound(preset.photos);
                 setLayoutStyle(preset.layout);
               }}
               onFrame={(preset) => setFrameStyle(preset.id)}
               onCountdown={setCountdownSeconds}
-              onSounds={setSoundsEnabled}
-              onFlash={setFlashEnabled}
             />
-            <div>
-              <p className="mb-2 text-[11px] tracking-[0.28em] text-[#c4a35a] uppercase">
-                Look
-              </p>
-              <LookGrid
-                stream={stream}
-                selectedId={look.id}
-                onSelect={pickLook}
-                compact
-              />
-            </div>
-            <div className="flex justify-center pb-2">
-              <KioskButton
-                className="min-h-20 min-w-[16rem] text-2xl"
-                onClick={() => setPhase("live")}
-              >
-                Kezdés
-              </KioskButton>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {phase === "live" && !busy ? (
-        <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black via-black/85 to-transparent pt-16">
-          <div className="flex flex-col items-center gap-4 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6">
-            <button
-              type="button"
-              className="text-xs tracking-[0.22em] text-white/70 uppercase"
-              onClick={() => setPhase("attract")}
-            >
-              Élmény / sablon / időzítő
-            </button>
-            <LookStrip stream={stream} selectedId={look.id} onSelect={pickLook} />
             <KioskButton
-              className="min-h-20 min-w-[18rem] text-2xl"
-              disabled={!cameraOnline || busy}
+              className="min-h-16 min-w-[16rem] text-xl"
+              disabled={!cameraOnline}
               onClick={() => void startShoot()}
             >
               Fotózás
@@ -456,45 +417,14 @@ export function BoothApp({
               <button
                 key={preset.id}
                 type="button"
-                className={`min-h-12 shrink-0 rounded-full px-4 text-xs tracking-[0.16em] uppercase ${
-                  frameStyle === preset.id ? "bg-[#c4a35a] text-black" : "bg-white/10"
+                className={`min-h-12 shrink-0 rounded-full px-4 text-sm font-semibold ${
+                  frameStyle === preset.id ? "bg-white text-black" : "bg-white/15"
                 }`}
-                onClick={() => {
-                  setFrameStyle(preset.id);
-                  window.setTimeout(() => void recompose(), 0);
-                }}
+                onClick={() => void recompose(preset.id)}
               >
                 {preset.label}
               </button>
             ))}
-            {shotsRef.current.length > 1 ? (
-              <>
-                <button
-                  type="button"
-                  className={`min-h-12 shrink-0 rounded-full px-4 text-xs tracking-[0.16em] uppercase ${
-                    layoutStyle === "strip" ? "bg-white text-black" : "bg-white/10"
-                  }`}
-                  onClick={() => {
-                    setLayoutStyle("strip");
-                    window.setTimeout(() => void recompose(), 0);
-                  }}
-                >
-                  Csík
-                </button>
-                <button
-                  type="button"
-                  className={`min-h-12 shrink-0 rounded-full px-4 text-xs tracking-[0.16em] uppercase ${
-                    layoutStyle === "grid" ? "bg-white text-black" : "bg-white/10"
-                  }`}
-                  onClick={() => {
-                    setLayoutStyle("grid");
-                    window.setTimeout(() => void recompose(), 0);
-                  }}
-                >
-                  Rács
-                </button>
-              </>
-            ) : null}
           </div>
           {shotUrls.length > 1 ? (
             <div className="flex gap-2">
@@ -504,7 +434,7 @@ export function BoothApp({
                   key={url}
                   src={url}
                   alt=""
-                  className="h-14 w-14 rounded-lg object-cover ring-1 ring-white/20"
+                  className="h-16 w-24 rounded-lg object-contain bg-black ring-1 ring-white/20"
                 />
               ))}
             </div>
@@ -541,7 +471,7 @@ export function BoothApp({
                 <input
                   type="range"
                   min={1}
-                  max={10}
+                  max={20}
                   value={settings.countdownSeconds}
                   className="accent-[#c4a35a]"
                   onChange={(e) =>

@@ -42,7 +42,7 @@ function LookTile({
           : "min-h-[7.5rem] sm:min-h-[9.5rem]"
       } ${
         selected
-          ? "ring-[#c4a35a] ring-offset-2 ring-offset-black"
+          ? "ring-[#c4a35a] ring-offset-2 ring-offset-black scale-[1.02]"
           : "ring-white/15 active:scale-[0.98]"
       }`}
       aria-pressed={selected}
@@ -50,7 +50,7 @@ function LookTile({
     >
       <video
         ref={videoRef}
-        className="absolute inset-0 h-full w-full object-cover"
+        className="h-full w-full bg-black object-contain"
         style={{ filter: look.filter }}
         playsInline
         muted
