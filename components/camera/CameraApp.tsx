@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
+import {
+  attachStream,
+  cameraErrorMessage,
+  captureFromVideo,
+  getCameraStream,
+} from "@/lib/camera/capture";
 import { createId } from "@/lib/ids";
 import {
   downloadBlob,
@@ -11,7 +16,7 @@ import {
 } from "@/lib/photos/queue";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings } from "@/lib/types";
-import { connectCameraPeer, PeerBridge } from "@/lib/webrtc/peer";
+import { LiveLink, startCameraLive } from "@/lib/webrtc/live";
 
 async function uploadPhoto(item: QueuedPhoto) {
   const form = new FormData();
@@ -20,13 +25,13 @@ async function uploadPhoto(item: QueuedPhoto) {
   form.set("captureId", item.captureId);
   form.set("photoId", item.id);
   const res = await fetch("/api/photos", { method: "POST", body: form });
-  if (!res.ok) return false;
+  if (!res.ok) return null;
   return (await res.json()) as { photo: { id: string; token: string } };
 }
 
 export function CameraApp({ code }: { code: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const peerRef = useRef<PeerBridge | null>(null);
+  const peerRef = useRef<LiveLink | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const seenRef = useRef(new Set<string>());
   const [ready, setReady] = useState(false);
@@ -80,15 +85,22 @@ export function CameraApp({ code }: { code: string }) {
     await enqueuePhoto(queued);
     try {
       const uploaded = await uploadPhoto(queued);
+      const meta = {
+        action: "photo-ready" as const,
+        captureId,
+        photoId: uploaded ? uploaded.photo.id : photoId,
+        photoToken: uploaded?.photo.token,
+      };
+      await peerRef.current?.sendPhotoFile(blob, meta);
       if (uploaded) {
-        await peerRef.current?.sendControl({
-          action: "photo-ready",
-          captureId,
-          photoId: uploaded.photo.id,
-          photoToken: uploaded.photo.token,
-        });
+        await peerRef.current?.sendControl(meta);
       }
     } catch {
+      await peerRef.current?.sendPhotoFile(blob, {
+        action: "photo-ready",
+        captureId,
+        photoId,
+      });
       setStatus("Mentve helyben, feltöltés később");
     }
   }
@@ -116,23 +128,32 @@ export function CameraApp({ code }: { code: string }) {
   async function start() {
     try {
       setError("");
+      setStatus("Kamera indítása…");
       await resumeAudio();
       const stream = await getCameraStream(facing);
       streamRef.current = stream;
       if (videoRef.current) await attachStream(videoRef.current, stream);
-      const peer = await connectCameraPeer({
-        code,
-        stream,
-        onConnection: (state) => setStatus(state),
-        onControl: (msg) => {
-          void handleControl(msg.action, msg.captureId);
-        },
-      });
-      peerRef.current = peer;
       setReady(true);
-      setStatus("csatlakoztatva");
-    } catch {
-      setError("Kamera engedély kell. iPhone: Beállítások → Safari → Kamera.");
+      setStatus("Kamera él. iPad csatlakozás…");
+      try {
+        const peer = await startCameraLive({
+          code,
+          stream,
+          onStatus: setStatus,
+          onControl: (msg) => {
+            void handleControl(msg.action, msg.captureId);
+          },
+        });
+        peerRef.current = peer;
+      } catch (linkError) {
+        setStatus(
+          linkError instanceof Error
+            ? `Kamera OK, iPad kapcsolat: ${linkError.message}`
+            : "Kamera OK, az iPad még nem elérhető",
+        );
+      }
+    } catch (error) {
+      setError(cameraErrorMessage(error));
     }
   }
 
@@ -143,9 +164,8 @@ export function CameraApp({ code }: { code: string }) {
     const stream = await getCameraStream(next);
     streamRef.current = stream;
     if (videoRef.current) await attachStream(videoRef.current, stream);
-    const sender = peerRef.current?.pc.getSenders().find((item) => item.track?.kind === "video");
     const [track] = stream.getVideoTracks();
-    if (sender && track) await sender.replaceTrack(track);
+    if (track) await peerRef.current?.replaceTrack(track);
   }
 
   return (

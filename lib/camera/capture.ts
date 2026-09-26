@@ -1,15 +1,43 @@
 import { CaptureRequest } from "@/lib/camera/types";
 
+export function cameraErrorMessage(error: unknown) {
+  const name = error instanceof DOMException ? error.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "A kamera engedélye le van tiltva. iPhone: Beállítások → Safari → Kamera → Engedélyezés, aztán frissítsd az oldalt.";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "A Safari nem talál kamerát ezen az eszközön.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "A kamerát másik app használja. Zárd be a Kamerát / FaceTime-ot, és próbáld újra.";
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return "A kamera nem indult el.";
+}
+
 export async function getCameraStream(facingMode: "user" | "environment") {
-  return navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: {
-      facingMode: { ideal: facingMode },
-      width: { ideal: 1920 },
-      height: { ideal: 1440 },
-      frameRate: { ideal: 30 },
+  const attempts: MediaStreamConstraints[] = [
+    {
+      audio: false,
+      video: {
+        facingMode: { ideal: facingMode },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
     },
-  });
+    { audio: false, video: { facingMode } },
+    { audio: false, video: true },
+  ];
+
+  let last: unknown;
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      last = error;
+    }
+  }
+  throw last instanceof Error ? last : new Error("A kamera nem elérhető");
 }
 
 export async function captureFromVideo(

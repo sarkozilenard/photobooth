@@ -6,9 +6,11 @@ import { PhotoRecord } from "@/lib/types";
 
 export function ShareSheet({
   photo,
+  file,
   onClose,
 }: {
-  photo: PhotoRecord;
+  photo: PhotoRecord | null;
+  file?: Blob | null;
   onClose: () => void;
 }) {
   const [mode, setMode] = useState<"menu" | "email" | "qr">("menu");
@@ -17,22 +19,29 @@ export function ShareSheet({
   const [qr, setQr] = useState<{ url: string; qr: string } | null>(null);
 
   useEffect(() => {
-    if (mode !== "qr") return;
+    if (mode !== "qr" || !photo) return;
     void fetch(`/api/share/qr?photoId=${photo.id}`)
       .then((r) => r.json())
       .then(setQr);
-  }, [mode, photo.id]);
+  }, [mode, photo]);
 
   async function shareNative() {
     setStatus("");
-    const res = await fetch(`/api/photos/${photo.id}/file?t=${photo.token}`);
-    const blob = await res.blob();
-    const file = new File([blob], `photobooth-${photo.id}.jpg`, {
+    const blob =
+      file ||
+      (photo
+        ? await (await fetch(`/api/photos/${photo.id}/file?t=${photo.token}`)).blob()
+        : null);
+    if (!blob) {
+      setStatus("A fotó még nem elérhető.");
+      return;
+    }
+    const fileOut = new File([blob], `photobooth-${photo?.id ?? "shot"}.jpg`, {
       type: blob.type || "image/jpeg",
     });
-    if (navigator.canShare?.({ files: [file] })) {
+    if (navigator.canShare?.({ files: [fileOut] })) {
       await navigator.share({
-        files: [file],
+        files: [fileOut],
         title: "PHOTO BOOTH",
         text: "Fotó a boothból",
       });
@@ -41,13 +50,17 @@ export function ShareSheet({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = file.name;
+    a.download = fileOut.name;
     a.click();
     setStatus("A natív megosztás nem elérhető, a kép letöltődött.");
   }
 
   async function sendEmail(event: FormEvent) {
     event.preventDefault();
+    if (!photo) {
+      setStatus("A fotó még nincs a felhőben.");
+      return;
+    }
     setStatus("Küldés...");
     const res = await fetch("/api/share/email", {
       method: "POST",
@@ -75,10 +88,10 @@ export function ShareSheet({
               MEGOSZTÁS
             </p>
             <KioskButton onClick={() => void shareNative()}>AirDrop</KioskButton>
-            <KioskButton variant="ghost" onClick={() => setMode("email")}>
+            <KioskButton variant="ghost" onClick={() => setMode("email")} disabled={!photo}>
               E-mail
             </KioskButton>
-            <KioskButton variant="ghost" onClick={() => setMode("qr")}>
+            <KioskButton variant="ghost" onClick={() => setMode("qr")} disabled={!photo}>
               QR-kód
             </KioskButton>
             <KioskButton variant="ghost" onClick={onClose}>

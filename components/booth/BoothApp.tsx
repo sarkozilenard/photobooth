@@ -6,7 +6,7 @@ import { KioskButton } from "@/components/ui/KioskButton";
 import { createRingLightDriver } from "@/lib/hardware/ring-light";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings, PhotoRecord } from "@/lib/types";
-import { connectBoothPeer, PeerBridge } from "@/lib/webrtc/peer";
+import { LiveLink, startBoothLive } from "@/lib/webrtc/live";
 import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
 import { createId } from "@/lib/ids";
 
@@ -20,13 +20,15 @@ export function BoothApp({
   localCamera?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const peerRef = useRef<PeerBridge | null>(null);
+  const peerRef = useRef<LiveLink | null>(null);
   const seenRef = useRef(new Set<string>());
   const [settings, setSettings] = useState<BoothSettings | null>(null);
   const [phase, setPhase] = useState<Phase>("live");
   const [count, setCount] = useState<number | null>(null);
   const [flash, setFlash] = useState(false);
   const [photo, setPhoto] = useState<PhotoRecord | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [localFile, setLocalFile] = useState<Blob | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [cameraOnline, setCameraOnline] = useState(localCamera);
   const [connection, setConnection] = useState("új kapcsolat");
@@ -64,20 +66,28 @@ export function BoothApp({
 
     let stop: () => void = () => {};
     void (async () => {
-      const peer = await connectBoothPeer({
+      const peer = await startBoothLive({
         code,
         onStream: (stream) => {
           void attachStream(video, stream);
           setCameraOnline(true);
         },
-        onConnection: (state) => setConnection(state),
+        onStatus: setConnection,
+        onPhoto: (blob) => {
+          setLocalFile(blob);
+          setPreviewUrl((prev) => {
+            if (prev) URL.revokeObjectURL(prev);
+            return URL.createObjectURL(blob);
+          });
+          setPhase("preview");
+          setBusy(false);
+        },
         onControl: (msg) => {
           const key = `${msg.action}:${msg.captureId ?? ""}`;
           if (seenRef.current.has(key)) return;
           seenRef.current.add(key);
-          if (msg.action === "photo-ready" && msg.photoId) {
-            const token = msg.photoToken ? `?t=${msg.photoToken}` : "";
-            void fetch(`/api/photos/${msg.photoId}${token}`)
+          if (msg.action === "photo-ready" && msg.photoId && msg.photoToken) {
+            void fetch(`/api/photos/${msg.photoId}?t=${msg.photoToken}`)
               .then((r) => r.json())
               .then((data) => {
                 if (data.photo) {
@@ -124,6 +134,11 @@ export function BoothApp({
       const res = await fetch("/api/photos", { method: "POST", body: form });
       const data = await res.json();
       setPhoto(data.photo);
+      setLocalFile(blob);
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(blob);
+      });
       setPhase("preview");
     }
   }
@@ -151,6 +166,11 @@ export function BoothApp({
   function reset() {
     setPhase("live");
     setPhoto(null);
+    setLocalFile(null);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
     setShareOpen(false);
     setBusy(false);
     setCount(null);
@@ -171,10 +191,13 @@ export function BoothApp({
       />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.55)_100%)]" />
 
-      {photo && phase === "preview" ? (
+      {(photo || previewUrl) && phase === "preview" ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={`/api/photos/${photo.id}/file?t=${photo.token}`}
+          src={
+            previewUrl ||
+            `/api/photos/${photo?.id}/file?t=${photo?.token}`
+          }
           alt="Elkészült fotó"
           className="absolute inset-0 h-full w-full object-contain bg-black"
         />
@@ -227,7 +250,7 @@ export function BoothApp({
         </div>
       ) : null}
 
-      {phase === "preview" && photo ? (
+      {phase === "preview" && (photo || localFile) ? (
         <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center gap-4 p-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-center">
           <KioskButton variant="ghost" onClick={reset}>
             Új fotó
@@ -238,8 +261,12 @@ export function BoothApp({
         </div>
       ) : null}
 
-      {shareOpen && photo ? (
-        <ShareSheet photo={photo} onClose={() => setShareOpen(false)} />
+      {shareOpen ? (
+        <ShareSheet
+          photo={photo}
+          file={localFile}
+          onClose={() => setShareOpen(false)}
+        />
       ) : null}
     </div>
   );
