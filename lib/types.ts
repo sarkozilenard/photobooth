@@ -9,13 +9,20 @@ export type ControlAction =
   | "hello"
   | "renegotiate";
 
+export type FrameStyle = "none" | "gold" | "classic" | "minimal";
+
 export interface BoothSettings {
   name: string;
+  eventCaption: string;
   jpegQuality: number;
   maxEdge: number;
   soundsEnabled: boolean;
   flashEnabled: boolean;
   ringLightAlwaysOn: boolean;
+  countdownSeconds: number;
+  photosPerRound: number;
+  frameStyle: FrameStyle;
+  hasLogo: boolean;
 }
 
 export interface RoomRecord {
@@ -58,21 +65,33 @@ export interface SignalMessage {
   };
 }
 
+export interface LogoRecord {
+  mimeType: string;
+  blobUrl?: string;
+  localPath?: string;
+}
+
 export interface AppState {
   version: number;
   rooms: Record<string, RoomRecord>;
   photos: Record<string, PhotoRecord>;
   settings: Record<string, BoothSettings>;
   signals: Record<string, SignalMessage[]>;
+  logos: Record<string, LogoRecord>;
 }
 
 export const DEFAULT_SETTINGS: BoothSettings = {
   name: "PHOTO BOOTH",
+  eventCaption: "",
   jpegQuality: 0.92,
   maxEdge: 2560,
   soundsEnabled: true,
   flashEnabled: true,
   ringLightAlwaysOn: true,
+  countdownSeconds: 3,
+  photosPerRound: 3,
+  frameStyle: "gold",
+  hasLogo: false,
 };
 
 export const FUTURE_MODULES = [

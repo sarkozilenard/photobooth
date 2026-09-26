@@ -16,9 +16,9 @@ export interface EffectPlugin {
 
 export const effectRegistry: EffectPlugin[] = [
   { id: "none", label: "Alap fotó", ready: true },
-  { id: "frame", label: "Fotókeret", ready: false },
-  { id: "watermark", label: "Logó / vízjel", ready: false },
-  { id: "collage", label: "Kollázs", ready: false },
+  { id: "frame", label: "Fotókeret", ready: true },
+  { id: "watermark", label: "Logó / vízjel", ready: true },
+  { id: "collage", label: "Kollázs", ready: true },
   { id: "gif", label: "GIF", ready: false },
   { id: "boomerang", label: "Boomerang", ready: false },
   { id: "background-replace", label: "Háttércsere", ready: false },

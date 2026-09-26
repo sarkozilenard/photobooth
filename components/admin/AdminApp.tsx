@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { BoothSettings, PhotoRecord } from "@/lib/types";
+import { BoothSettings, DEFAULT_SETTINGS, PhotoRecord } from "@/lib/types";
 
 export function AdminApp() {
   const [authed, setAuthed] = useState<boolean | null>(null);
@@ -10,6 +10,7 @@ export function AdminApp() {
   const [room, setRoom] = useState("");
   const [photos, setPhotos] = useState<PhotoRecord[]>([]);
   const [settings, setSettings] = useState<BoothSettings | null>(null);
+  const [logoStamp, setLogoStamp] = useState(0);
 
   async function check() {
     const res = await fetch("/api/admin/session");
@@ -44,7 +45,7 @@ export function AdminApp() {
     if (room) {
       const s = await fetch(`/api/settings?room=${room.toUpperCase()}`);
       const json = await s.json();
-      setSettings(json.settings);
+      setSettings({ ...DEFAULT_SETTINGS, ...json.settings });
     }
   }
 
@@ -61,6 +62,34 @@ export function AdminApp() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ room: room.toUpperCase(), settings }),
     });
+  }
+
+  async function uploadLogo(file: File | null) {
+    if (!file || !room) return;
+    const form = new FormData();
+    form.set("file", file);
+    const res = await fetch(`/api/branding/${room.toUpperCase()}/logo`, {
+      method: "POST",
+      body: form,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.error || "A logó feltöltése nem sikerült");
+      return;
+    }
+    setError("");
+    setSettings((current) =>
+      current ? { ...current, hasLogo: true } : current,
+    );
+    setLogoStamp(Date.now());
+  }
+
+  async function removeLogo() {
+    if (!room) return;
+    await fetch(`/api/branding/${room.toUpperCase()}/logo`, { method: "DELETE" });
+    setSettings((current) =>
+      current ? { ...current, hasLogo: false } : current,
+    );
   }
 
   async function remove(id: string) {
@@ -133,6 +162,9 @@ export function AdminApp() {
             onSubmit={(e) => void saveSettings(e)}
             className="grid gap-4 rounded-[1.5rem] border border-white/10 p-6 md:grid-cols-2"
           >
+            {error ? (
+              <p className="text-sm text-red-300 md:col-span-2">{error}</p>
+            ) : null}
             <label className="flex flex-col gap-2 text-sm">
               Booth név
               <input
@@ -140,6 +172,97 @@ export function AdminApp() {
                 onChange={(e) => setSettings({ ...settings, name: e.target.value })}
                 className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-3"
               />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              Esemény felirat
+              <input
+                value={settings.eventCaption}
+                onChange={(e) =>
+                  setSettings({ ...settings, eventCaption: e.target.value })
+                }
+                placeholder="pl. Anna & Márk · 2026"
+                className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-3"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              Visszaszámláló (mp): {settings.countdownSeconds}
+              <input
+                type="range"
+                min={1}
+                max={10}
+                step={1}
+                value={settings.countdownSeconds}
+                className="accent-[#c4a35a]"
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    countdownSeconds: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              Fotók egy körben: {settings.photosPerRound}
+              <input
+                type="range"
+                min={1}
+                max={4}
+                step={1}
+                value={settings.photosPerRound}
+                className="accent-[#c4a35a]"
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    photosPerRound: Number(e.target.value),
+                  })
+                }
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm md:col-span-2">
+              Logó
+              {settings.hasLogo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/branding/${room}/logo?t=${logoStamp}`}
+                  alt="Feltöltött logó"
+                  className="h-20 w-auto max-w-xs object-contain rounded-xl bg-white/5 p-2"
+                />
+              ) : (
+                <p className="text-white/40">Még nincs logó.</p>
+              )}
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="text-sm file:mr-4 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-black"
+                onChange={(e) => void uploadLogo(e.target.files?.[0] ?? null)}
+              />
+              {settings.hasLogo ? (
+                <button
+                  type="button"
+                  className="w-fit text-sm text-white/50 underline"
+                  onClick={() => void removeLogo()}
+                >
+                  Logó törlése
+                </button>
+              ) : null}
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              Keret
+              <select
+                value={settings.frameStyle}
+                onChange={(e) =>
+                  setSettings({
+                    ...settings,
+                    frameStyle: e.target.value as BoothSettings["frameStyle"],
+                  })
+                }
+                className="min-h-11 rounded-xl border border-white/10 bg-black px-3"
+              >
+                <option value="gold">Arany</option>
+                <option value="classic">Polaroid</option>
+                <option value="minimal">Minimal</option>
+                <option value="none">Nincs keret</option>
+              </select>
             </label>
             <label className="flex flex-col gap-2 text-sm">
               JPEG minőség ({settings.jpegQuality})

@@ -5,9 +5,10 @@ import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
 import { createRingLightDriver } from "@/lib/hardware/ring-light";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
-import { BoothSettings, PhotoRecord } from "@/lib/types";
+import { BoothSettings, DEFAULT_SETTINGS, PhotoRecord } from "@/lib/types";
 import { LiveLink, startBoothLive } from "@/lib/webrtc/live";
 import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
+import { composeSession, loadRoomLogo } from "@/lib/branding/compose";
 import { createId } from "@/lib/ids";
 
 type Phase = "live" | "countdown" | "preview";
@@ -33,6 +34,9 @@ export function BoothApp({
   const [cameraOnline, setCameraOnline] = useState(localCamera);
   const [connection, setConnection] = useState("új kapcsolat");
   const [busy, setBusy] = useState(false);
+  const [shotUrls, setShotUrls] = useState<string[]>([]);
+  const [shotLabel, setShotLabel] = useState("");
+  const sessionRef = useRef(false);
   const ring = useRef(createRingLightDriver());
 
   const loadSettings = useCallback(async () => {
@@ -82,6 +86,7 @@ export function BoothApp({
           }
         },
         onPhoto: (blob) => {
+          if (sessionRef.current) return;
           setLocalFile(blob);
           setPreviewUrl((prev) => {
             if (prev) URL.revokeObjectURL(prev);
@@ -95,6 +100,7 @@ export function BoothApp({
           if (seenRef.current.has(key)) return;
           seenRef.current.add(key);
           if (msg.action === "photo-ready" && msg.photoId && msg.photoToken) {
+            if (sessionRef.current) return;
             void fetch(`/api/photos/${msg.photoId}?t=${msg.photoToken}`)
               .then((r) => r.json())
               .then((data) => {
@@ -114,9 +120,18 @@ export function BoothApp({
     return () => stop();
   }, [code, localCamera]);
 
-  async function runCountdown(captureId: string) {
+  async function captureCurrent(captureId: string) {
+    if (!videoRef.current || videoRef.current.videoWidth <= 0) return null;
+    return captureFromVideo(videoRef.current, {
+      captureId,
+      quality: settings?.jpegQuality ?? 0.92,
+      maxEdge: settings?.maxEdge ?? 2560,
+    });
+  }
+
+  async function runCountdown(captureId: string, seconds: number) {
     setPhase("countdown");
-    for (const n of [3, 2, 1]) {
+    for (let n = seconds; n >= 1; n -= 1) {
       setCount(n);
       if (settings?.soundsEnabled) playCountdownBeep(n);
       await new Promise((r) => setTimeout(r, 1000));
@@ -128,51 +143,68 @@ export function BoothApp({
     }
     if (settings?.soundsEnabled) playShutter();
     await peerRef.current?.sendControl({ action: "capture", captureId });
-
-    if (videoRef.current && videoRef.current.videoWidth > 0) {
-      try {
-        const blob = await captureFromVideo(videoRef.current, {
-          captureId,
-          quality: settings?.jpegQuality ?? 0.92,
-          maxEdge: settings?.maxEdge ?? 2560,
-        });
-        setLocalFile(blob);
-        setPreviewUrl((prev) => {
-          if (prev) URL.revokeObjectURL(prev);
-          return URL.createObjectURL(blob);
-        });
-        setPhase("preview");
-        setBusy(false);
-        const form = new FormData();
-        form.set("file", blob, `${captureId}.jpg`);
-        form.set("roomCode", code);
-        form.set("captureId", captureId);
-        const res = await fetch("/api/photos", { method: "POST", body: form });
-        const data = await res.json();
-        if (data.photo) setPhoto(data.photo);
-      } catch {
-        /* az iPhone még küldheti a fotót */
-      }
-    }
+    return captureCurrent(captureId);
   }
 
   async function startShoot() {
     if (busy || (!cameraOnline && !localCamera)) return;
     setBusy(true);
+    sessionRef.current = true;
     await resumeAudio();
     try {
       await document.documentElement.requestFullscreen?.();
     } catch {
       /* kiosk optional */
     }
-    const captureId = createId();
-    await peerRef.current?.sendControl({
-      action: "start-countdown",
-      captureId,
-      value: 3,
-    });
-    await runCountdown(captureId);
-    setBusy(false);
+
+    const seconds = settings?.countdownSeconds ?? 3;
+    const total = settings?.photosPerRound ?? 1;
+    const shots: Blob[] = [];
+    const urls: string[] = [];
+
+    try {
+      for (let index = 0; index < total; index += 1) {
+        setShotLabel(total > 1 ? `${index + 1} / ${total}` : "");
+        const captureId = createId();
+        await peerRef.current?.sendControl({
+          action: "start-countdown",
+          captureId,
+          value: seconds,
+        });
+        const blob = await runCountdown(captureId, seconds);
+        if (blob) {
+          shots.push(blob);
+          urls.push(URL.createObjectURL(blob));
+          setShotUrls([...urls]);
+        }
+        if (index < total - 1) {
+          setPhase("live");
+          await new Promise((r) => setTimeout(r, 900));
+        }
+      }
+
+      if (shots.length === 0) return;
+      const current = settings ?? DEFAULT_SETTINGS;
+      const logo = await loadRoomLogo(code, current.hasLogo);
+      const strip = await composeSession(shots, current, logo);
+      setLocalFile(strip);
+      setPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(strip);
+      });
+      setPhase("preview");
+      const form = new FormData();
+      form.set("file", strip, "session.jpg");
+      form.set("roomCode", code);
+      const res = await fetch("/api/photos", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.photo) setPhoto(data.photo);
+    } finally {
+      sessionRef.current = false;
+      setBusy(false);
+      setShotLabel("");
+      setCount(null);
+    }
   }
 
   function reset() {
@@ -183,9 +215,14 @@ export function BoothApp({
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
+    setShotUrls((prev) => {
+      prev.forEach((url) => URL.revokeObjectURL(url));
+      return [];
+    });
     setShareOpen(false);
     setBusy(false);
     setCount(null);
+    setShotLabel("");
   }
 
   const title = settings?.name || "PHOTO BOOTH";
@@ -222,7 +259,10 @@ export function BoothApp({
       {flash ? <div className="absolute inset-0 z-20 bg-white/90 animate-[pulse_140ms_ease-out]" /> : null}
 
       {phase === "countdown" && count ? (
-        <div className="absolute inset-0 z-10 flex items-center justify-center">
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center">
+          {shotLabel ? (
+            <p className="mb-2 text-sm tracking-[0.4em] text-[#c4a35a]">{shotLabel}</p>
+          ) : null}
           <span className="font-serif text-[30vw] leading-none text-white drop-shadow-[0_0_40px_rgba(255,255,255,0.35)]">
             {count}
           </span>
@@ -254,7 +294,7 @@ export function BoothApp({
         </div>
       ) : null}
 
-      {phase === "live" ? (
+      {phase === "live" && !busy ? (
         <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center p-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
           <KioskButton
             className="min-h-20 min-w-[18rem] text-2xl"
@@ -267,13 +307,28 @@ export function BoothApp({
       ) : null}
 
       {phase === "preview" && (photo || localFile) ? (
-        <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center gap-4 p-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:flex-row sm:justify-center">
+        <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center gap-4 p-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
+          {shotUrls.length > 1 ? (
+            <div className="flex gap-2">
+              {shotUrls.map((url) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={url}
+                  src={url}
+                  alt=""
+                  className="h-16 w-16 rounded-lg object-cover ring-1 ring-white/20"
+                />
+              ))}
+            </div>
+          ) : null}
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
           <KioskButton variant="ghost" onClick={reset}>
             Új fotó
           </KioskButton>
           <KioskButton variant="gold" onClick={() => setShareOpen(true)}>
             QR-kód
           </KioskButton>
+          </div>
         </div>
       ) : null}
 

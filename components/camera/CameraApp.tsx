@@ -112,14 +112,19 @@ export function CameraApp({ code }: { code: string }) {
     }
   }
 
-  async function handleControl(action: string, captureId?: string) {
+  async function handleControl(
+    action: string,
+    captureId?: string,
+    value?: number,
+  ) {
     const key = `${action}:${captureId ?? ""}`;
     if (seenRef.current.has(key)) return;
     seenRef.current.add(key);
 
     if (action === "start-countdown") {
       await resumeAudio();
-      for (const n of [3, 2, 1]) {
+      const seconds = Math.min(10, Math.max(1, value ?? 3));
+      for (let n = seconds; n >= 1; n -= 1) {
         setCount(n);
         if (settings?.soundsEnabled !== false) playCountdownBeep(n);
         await new Promise((r) => setTimeout(r, 1000));
@@ -154,7 +159,7 @@ export function CameraApp({ code }: { code: string }) {
           stream,
           onStatus: setStatus,
           onControl: (msg) => {
-            void handleControl(msg.action, msg.captureId);
+            void handleControl(msg.action, msg.captureId, msg.value);
           },
         });
         peerRef.current = peer;

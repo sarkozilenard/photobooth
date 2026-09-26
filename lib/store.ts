@@ -8,11 +8,13 @@ import {
   PhotoRecord,
   RoomRecord,
   SignalMessage,
+  LogoRecord,
 } from "./types";
 
 const DATA_DIR = path.join(process.cwd(), ".data");
 const DB_FILE = path.join(DATA_DIR, "db.json");
 const PHOTOS_DIR = path.join(DATA_DIR, "photos");
+const LOGOS_DIR = path.join(DATA_DIR, "logos");
 const BLOB_STATE = "booth/state.json";
 
 const emptyState = (): AppState => ({
@@ -21,6 +23,7 @@ const emptyState = (): AppState => ({
   photos: {},
   settings: {},
   signals: {},
+  logos: {},
 });
 
 const globalStore = globalThis as typeof globalThis & {
@@ -65,6 +68,7 @@ async function readState(): Promise<AppState> {
       if (!result?.stream) return globalStore.__boothState ?? emptyState();
       const text = await new Response(result.stream).text();
       const parsed = JSON.parse(text) as AppState;
+      parsed.logos = parsed.logos ?? {};
       globalStore.__boothState = parsed;
       return parsed;
     } catch {
@@ -76,6 +80,7 @@ async function readState(): Promise<AppState> {
     try {
       const raw = await readFile(DB_FILE, "utf8");
       const parsed = JSON.parse(raw) as AppState;
+      parsed.logos = parsed.logos ?? {};
       globalStore.__boothState = parsed;
       return parsed;
     } catch {
@@ -159,7 +164,11 @@ export async function getRoom(code: string) {
 
 export async function getSettings(code: string): Promise<BoothSettings> {
   const state = await getState();
-  return state.settings[code] ?? { ...DEFAULT_SETTINGS };
+  return {
+    ...DEFAULT_SETTINGS,
+    ...(state.settings[code] ?? {}),
+    hasLogo: Boolean(state.logos[code]),
+  };
 }
 
 export async function updateSettings(
@@ -167,8 +176,19 @@ export async function updateSettings(
   patch: Partial<BoothSettings>,
 ) {
   return mutateState((state) => {
-    const current = state.settings[code] ?? { ...DEFAULT_SETTINGS };
-    const next = { ...current, ...patch };
+    const current = { ...DEFAULT_SETTINGS, ...(state.settings[code] ?? {}) };
+    const next = {
+      ...current,
+      ...patch,
+      countdownSeconds: Math.min(
+        10,
+        Math.max(1, Math.round(patch.countdownSeconds ?? current.countdownSeconds)),
+      ),
+      photosPerRound: Math.min(
+        4,
+        Math.max(1, Math.round(patch.photosPerRound ?? current.photosPerRound)),
+      ),
+    };
     state.settings[code] = next;
     return next;
   });
@@ -242,6 +262,92 @@ export async function writeLocalPhoto(id: string, bytes: Buffer) {
 
 export async function readLocalPhoto(filePath: string) {
   return readFile(filePath);
+}
+
+function logoExt(mime: string) {
+  if (mime.includes("png")) return "png";
+  if (mime.includes("webp")) return "webp";
+  if (mime.includes("gif")) return "gif";
+  return "jpg";
+}
+
+export async function saveLogo(code: string, bytes: Buffer, mimeType: string) {
+  const previous = await mutateState(async (state) => {
+    const existing = state.logos[code];
+    const record: LogoRecord = { mimeType };
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      const blob = await blobPut(`logos/${code}.${logoExt(mimeType)}`, bytes, {
+        access: "private",
+        addRandomSuffix: false,
+        allowOverwrite: true,
+        contentType: mimeType,
+      });
+      record.blobUrl = blob.url;
+    } else {
+      await mkdir(LOGOS_DIR, { recursive: true });
+      const filePath = path.join(LOGOS_DIR, `${code}.${logoExt(mimeType)}`);
+      await writeFile(filePath, bytes);
+      record.localPath = filePath;
+    }
+    state.logos[code] = record;
+    return existing;
+  });
+
+  if (previous?.localPath && previous.localPath !== (await getLogoRecord(code))?.localPath) {
+    try {
+      await unlink(previous.localPath);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function getLogoRecord(code: string) {
+  const state = await getState();
+  return state.logos[code] ?? null;
+}
+
+export async function readLogo(code: string) {
+  const record = await getLogoRecord(code);
+  if (!record) return null;
+  if (record.localPath) {
+    const bytes = await readFile(record.localPath);
+    return { bytes, mimeType: record.mimeType };
+  }
+  if (record.blobUrl) {
+    const blob = await blobGet(record.blobUrl, {
+      access: "private",
+      useCache: true,
+    });
+    if (!blob?.stream) return null;
+    const bytes = Buffer.from(await new Response(blob.stream).arrayBuffer());
+    return { bytes, mimeType: record.mimeType };
+  }
+  return null;
+}
+
+export async function deleteLogo(code: string) {
+  return mutateState(async (state) => {
+    const record = state.logos[code];
+    if (!record) return null;
+    delete state.logos[code];
+    if (record.localPath) {
+      try {
+        await unlink(record.localPath);
+      } catch {
+        /* ignore */
+      }
+    }
+    if (record.blobUrl) {
+      try {
+        const { del } = await import("@vercel/blob");
+        await del(record.blobUrl);
+      } catch {
+        /* ignore */
+      }
+    }
+    return record;
+  });
 }
 
 export function isOnline(lastSeen: number, windowMs = 8000) {
