@@ -143,15 +143,13 @@ export function BoothApp({
         });
         setPhase("preview");
         setBusy(false);
-        if (localCamera) {
-          const form = new FormData();
-          form.set("file", blob, `${captureId}.jpg`);
-          form.set("roomCode", code);
-          form.set("captureId", captureId);
-          const res = await fetch("/api/photos", { method: "POST", body: form });
-          const data = await res.json();
-          if (data.photo) setPhoto(data.photo);
-        }
+        const form = new FormData();
+        form.set("file", blob, `${captureId}.jpg`);
+        form.set("roomCode", code);
+        form.set("captureId", captureId);
+        const res = await fetch("/api/photos", { method: "POST", body: form });
+        const data = await res.json();
+        if (data.photo) setPhoto(data.photo);
       } catch {
         /* az iPhone még küldheti a fotót */
       }
@@ -274,7 +272,7 @@ export function BoothApp({
             Új fotó
           </KioskButton>
           <KioskButton variant="gold" onClick={() => setShareOpen(true)}>
-            Megosztás
+            QR-kód
           </KioskButton>
         </div>
       ) : null}
@@ -283,6 +281,8 @@ export function BoothApp({
         <ShareSheet
           photo={photo}
           file={localFile}
+          roomCode={code}
+          onPhoto={setPhoto}
           onClose={() => setShareOpen(false)}
         />
       ) : null}
