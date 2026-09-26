@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { LookGrid, LookStrip } from "@/components/booth/LookGrid";
+import { LookOverlay } from "@/components/booth/LookOverlay";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
 import { createRingLightDriver } from "@/lib/hardware/ring-light";
@@ -9,9 +11,10 @@ import { BoothSettings, DEFAULT_SETTINGS, PhotoRecord } from "@/lib/types";
 import { LiveLink, startBoothLive } from "@/lib/webrtc/live";
 import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
 import { composeSession, loadRoomLogo } from "@/lib/branding/compose";
+import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
 
-type Phase = "live" | "countdown" | "preview";
+type Phase = "attract" | "live" | "countdown" | "preview";
 
 export function BoothApp({
   code,
@@ -24,7 +27,9 @@ export function BoothApp({
   const peerRef = useRef<LiveLink | null>(null);
   const seenRef = useRef(new Set<string>());
   const [settings, setSettings] = useState<BoothSettings | null>(null);
-  const [phase, setPhase] = useState<Phase>("live");
+  const [phase, setPhase] = useState<Phase>("attract");
+  const [look, setLook] = useState<BoothLook>(DEFAULT_LOOK);
+  const [stream, setStream] = useState<MediaStream | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [flash, setFlash] = useState(false);
   const [photo, setPhoto] = useState<PhotoRecord | null>(null);
@@ -38,6 +43,7 @@ export function BoothApp({
   const [shotUrls, setShotUrls] = useState<string[]>([]);
   const [shotLabel, setShotLabel] = useState("");
   const sessionRef = useRef(false);
+  const holdRef = useRef<number | null>(null);
   const ring = useRef(createRingLightDriver());
 
   const loadSettings = useCallback(async () => {
@@ -62,6 +68,7 @@ export function BoothApp({
       void (async () => {
         stream = await getCameraStream("user");
         await attachStream(video, stream);
+        setStream(stream);
         setCameraOnline(true);
         setConnection("helyi kamera");
       })();
@@ -72,8 +79,9 @@ export function BoothApp({
     void (async () => {
       const peer = await startBoothLive({
         code,
-        onStream: (stream) => {
-          void attachStream(video, stream);
+        onStream: (media) => {
+          void attachStream(video, media);
+          setStream(media);
           setCameraOnline(true);
         },
         onStatus: (text) => {
@@ -123,11 +131,15 @@ export function BoothApp({
 
   async function captureCurrent(captureId: string) {
     if (!videoRef.current || videoRef.current.videoWidth <= 0) return null;
-    return captureFromVideo(videoRef.current, {
-      captureId,
-      quality: settings?.jpegQuality ?? 0.92,
-      maxEdge: settings?.maxEdge ?? 2560,
-    });
+    return captureFromVideo(
+      videoRef.current,
+      {
+        captureId,
+        quality: settings?.jpegQuality ?? 0.92,
+        maxEdge: settings?.maxEdge ?? 2560,
+      },
+      look,
+    );
   }
 
   async function runCountdown(captureId: string, seconds: number) {
@@ -185,7 +197,10 @@ export function BoothApp({
       }
 
       if (shots.length === 0) return;
-      const current = settings ?? DEFAULT_SETTINGS;
+      const current = {
+        ...(settings ?? DEFAULT_SETTINGS),
+        frameStyle: look.frameStyle ?? settings?.frameStyle ?? "gold",
+      };
       const logo = await loadRoomLogo(code, current.hasLogo);
       const strip = await composeSession(shots, current, logo);
       setLocalFile(strip);
@@ -209,7 +224,7 @@ export function BoothApp({
   }
 
   function reset() {
-    setPhase("live");
+    setPhase("attract");
     setPhoto(null);
     setLocalFile(null);
     setPreviewUrl((prev) => {
@@ -226,6 +241,21 @@ export function BoothApp({
     setShotLabel("");
   }
 
+  function pickLook(next: BoothLook) {
+    setLook(next);
+    if (phase === "attract") setPhase("live");
+  }
+
+  function beginOperatorHold() {
+    if (holdRef.current) window.clearTimeout(holdRef.current);
+    holdRef.current = window.setTimeout(() => setSettingsOpen(true), 900);
+  }
+
+  function endOperatorHold() {
+    if (holdRef.current) window.clearTimeout(holdRef.current);
+    holdRef.current = null;
+  }
+
   const title = settings?.name || "PHOTO BOOTH";
 
   return (
@@ -238,10 +268,14 @@ export function BoothApp({
         <video
           ref={videoRef}
           className="h-full w-full object-contain"
+          style={{ filter: phase === "attract" ? "none" : look.filter }}
           playsInline
           muted
           autoPlay
         />
+        {phase !== "attract" && phase !== "preview" ? (
+          <LookOverlay look={look} />
+        ) : null}
       </div>
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_55%,rgba(0,0,0,0.35)_100%)]" />
 
@@ -270,29 +304,30 @@ export function BoothApp({
         </div>
       ) : null}
 
-      <header className="absolute left-0 right-0 top-0 z-10 flex items-start justify-between p-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
-        <div>
+      <header className="absolute left-0 right-0 top-0 z-20 flex items-start justify-between p-6 pt-[max(1.5rem,env(safe-area-inset-top))]">
+        <div
+          onPointerDown={beginOperatorHold}
+          onPointerUp={endOperatorHold}
+          onPointerCancel={endOperatorHold}
+          onPointerLeave={endOperatorHold}
+        >
           <p className="text-xs tracking-[0.5em] text-[#c4a35a]">{title}</p>
           <p className="mt-2 text-xs uppercase tracking-[0.25em] text-white/50">
-            {cameraOnline ? "Élő kamera" : "Kamera várakozik"} · {connection}
+            {phase === "attract"
+              ? "Válassz lookot"
+              : cameraOnline
+                ? `Élő · ${look.label}`
+                : "Kamera várakozik"}
+            {phase !== "attract" ? ` · ${connection}` : ""}
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="rounded-full border border-white/20 bg-black/40 px-4 py-2 text-xs tracking-[0.2em] uppercase text-white/80"
-            onClick={() => setSettingsOpen(true)}
-          >
-            Beállítások
-          </button>
-          <div
-            className={`h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
-            aria-label={cameraOnline ? "Kamera csatlakozva" : "Kamera nincs csatlakozva"}
-          />
-        </div>
+        <div
+          className={`h-3 w-3 rounded-full ${cameraOnline ? "bg-emerald-400" : "bg-white/30"}`}
+          aria-label={cameraOnline ? "Kamera csatlakozva" : "Kamera nincs csatlakozva"}
+        />
       </header>
 
-      {!cameraOnline && phase === "live" ? (
+      {!cameraOnline && phase !== "preview" ? (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-4 bg-black/50 p-8 text-center">
           <p className="font-serif text-4xl">Kamera csatlakoztatása</p>
           <p className="max-w-md text-white/70">
@@ -304,15 +339,27 @@ export function BoothApp({
         </div>
       ) : null}
 
+      {phase === "attract" && cameraOnline ? (
+        <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/35 p-4 pt-24 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-8 sm:pt-28">
+          <div className="mx-auto w-full max-w-4xl">
+            <p className="mb-4 font-serif text-3xl sm:text-5xl">Melyik look?</p>
+            <LookGrid stream={stream} onSelect={pickLook} />
+          </div>
+        </div>
+      ) : null}
+
       {phase === "live" && !busy ? (
-        <div className="absolute bottom-0 left-0 right-0 z-10 flex justify-center p-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
-          <KioskButton
-            className="min-h-20 min-w-[18rem] text-2xl"
-            disabled={!cameraOnline || busy}
-            onClick={() => void startShoot()}
-          >
-            Fotózás
-          </KioskButton>
+        <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black via-black/85 to-transparent pt-16">
+          <div className="flex flex-col items-center gap-5 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6">
+            <LookStrip stream={stream} selectedId={look.id} onSelect={pickLook} />
+            <KioskButton
+              className="min-h-20 min-w-[18rem] text-2xl"
+              disabled={!cameraOnline || busy}
+              onClick={() => void startShoot()}
+            >
+              Fotózás
+            </KioskButton>
+          </div>
         </div>
       ) : null}
 

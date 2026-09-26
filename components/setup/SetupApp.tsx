@@ -110,7 +110,7 @@ export function SetupApp() {
             2. Az iPhone-on indítsd a kamerát, rögzítsd a ring light elé.
           </li>
           <li className="rounded-3xl border border-white/10 p-5">
-            3. A vendég csak a Fotózás gombot nyomja meg.
+            3. A vendég a lookot koppintja, aztán Fotózás.
           </li>
         </ol>
 
