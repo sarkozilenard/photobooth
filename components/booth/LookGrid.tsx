@@ -10,12 +10,14 @@ function LookTile({
   selected,
   onSelect,
   compact = false,
+  wide = false,
 }: {
   look: BoothLook;
   stream: MediaStream | null;
   selected?: boolean;
   onSelect: (look: BoothLook) => void;
   compact?: boolean;
+  wide?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -33,7 +35,11 @@ function LookTile({
       type="button"
       onClick={() => onSelect(look)}
       className={`group relative shrink-0 overflow-hidden rounded-2xl text-left ring-2 transition duration-200 ${
-        compact ? "h-20 w-20 sm:h-[5.5rem] sm:w-[5.5rem]" : "min-h-[7.5rem] sm:min-h-[9.5rem]"
+        compact
+          ? wide
+            ? "h-[4.6rem] w-full sm:h-20"
+            : "h-20 w-20 sm:h-[5.5rem] sm:w-[5.5rem]"
+          : "min-h-[7.5rem] sm:min-h-[9.5rem]"
       } ${
         selected
           ? "ring-[#c4a35a] ring-offset-2 ring-offset-black"
@@ -75,13 +81,15 @@ export function LookGrid({
   stream,
   selectedId,
   onSelect,
+  compact = false,
 }: {
   stream: MediaStream | null;
   selectedId?: string;
   onSelect: (look: BoothLook) => void;
+  compact?: boolean;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-2 sm:gap-3">
+    <div className={`grid grid-cols-3 ${compact ? "gap-1.5" : "gap-2 sm:gap-3"}`}>
       {BOOTH_LOOKS.map((look) => (
         <LookTile
           key={look.id}
@@ -89,6 +97,8 @@ export function LookGrid({
           stream={stream}
           selected={look.id === selectedId}
           onSelect={onSelect}
+          compact={compact}
+          wide={compact}
         />
       ))}
     </div>

@@ -9,7 +9,6 @@ import {
 } from "@/lib/camera/capture";
 import { createId } from "@/lib/ids";
 import {
-  downloadBlob,
   enqueuePhoto,
   flushUploadQueue,
   QueuedPhoto,
@@ -80,7 +79,6 @@ export function CameraApp({ code }: { code: string }) {
       maxEdge: settings?.maxEdge ?? 2560,
     });
     const photoId = createId();
-    downloadBlob(blob, `photobooth-${photoId}.jpg`);
     const queued: QueuedPhoto = {
       id: photoId,
       roomCode: code,

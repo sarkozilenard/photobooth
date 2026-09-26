@@ -1,4 +1,5 @@
 import { getPhoto } from "@/lib/store";
+import { GuestPhoto } from "@/components/share/GuestPhoto";
 
 export default async function PhotoPage({
   params,
@@ -18,17 +19,5 @@ export default async function PhotoPage({
     );
   }
   const src = `/api/photos/${photo.id}/file?t=${photo.token}`;
-  return (
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-6 bg-black p-6 text-white">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="PHOTO BOOTH fotó" className="max-h-[80dvh] w-full max-w-3xl object-contain" />
-      <a
-        href={src}
-        download={`photobooth-${photo.id}.jpg`}
-        className="rounded-full bg-white px-8 py-4 font-semibold tracking-[0.2em] text-black uppercase"
-      >
-        Letöltés
-      </a>
-    </div>
-  );
+  return <GuestPhoto src={src} filename={`photobooth-${photo.id}.jpg`} />;
 }

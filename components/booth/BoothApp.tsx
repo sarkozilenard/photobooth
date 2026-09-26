@@ -1,13 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GuestChooser } from "@/components/booth/GuestChooser";
 import { LookGrid, LookStrip } from "@/components/booth/LookGrid";
 import { LookOverlay } from "@/components/booth/LookOverlay";
 import { ShareSheet } from "@/components/share/ShareSheet";
 import { KioskButton } from "@/components/ui/KioskButton";
+import { FRAMES } from "@/lib/booth/guest-presets";
 import { createRingLightDriver } from "@/lib/hardware/ring-light";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
-import { BoothSettings, DEFAULT_SETTINGS, PhotoRecord } from "@/lib/types";
+import { BoothSettings, DEFAULT_SETTINGS, FrameStyle, LayoutStyle, PhotoRecord } from "@/lib/types";
 import { LiveLink, startBoothLive } from "@/lib/webrtc/live";
 import { attachStream, captureFromVideo, getCameraStream } from "@/lib/camera/capture";
 import { composeSession, loadRoomLogo } from "@/lib/branding/compose";
@@ -29,6 +31,13 @@ export function BoothApp({
   const [settings, setSettings] = useState<BoothSettings | null>(null);
   const [phase, setPhase] = useState<Phase>("attract");
   const [look, setLook] = useState<BoothLook>(DEFAULT_LOOK);
+  const [photosPerRound, setPhotosPerRound] = useState(3);
+  const [layoutStyle, setLayoutStyle] = useState<LayoutStyle>("strip");
+  const [frameStyle, setFrameStyle] = useState<FrameStyle>("gold");
+  const [countdownSeconds, setCountdownSeconds] = useState(3);
+  const [soundsEnabled, setSoundsEnabled] = useState(true);
+  const [flashEnabled, setFlashEnabled] = useState(true);
+  const guestSeeded = useRef(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [count, setCount] = useState<number | null>(null);
   const [flash, setFlash] = useState(false);
@@ -43,6 +52,7 @@ export function BoothApp({
   const [shotUrls, setShotUrls] = useState<string[]>([]);
   const [shotLabel, setShotLabel] = useState("");
   const sessionRef = useRef(false);
+  const shotsRef = useRef<Blob[]>([]);
   const holdRef = useRef<number | null>(null);
   const ring = useRef(createRingLightDriver());
 
@@ -50,6 +60,15 @@ export function BoothApp({
     const res = await fetch(`/api/rooms/${code}`);
     const data = await res.json();
     setSettings((prev) => (settingsOpen ? prev : data.settings));
+    if (!guestSeeded.current && data.settings) {
+      guestSeeded.current = true;
+      setPhotosPerRound(data.settings.photosPerRound ?? 3);
+      setLayoutStyle(data.settings.layoutStyle ?? "strip");
+      setFrameStyle(data.settings.frameStyle ?? "gold");
+      setCountdownSeconds(data.settings.countdownSeconds ?? 3);
+      setSoundsEnabled(data.settings.soundsEnabled ?? true);
+      setFlashEnabled(data.settings.flashEnabled ?? true);
+    }
   }, [code, settingsOpen]);
 
   useEffect(() => {
@@ -146,15 +165,15 @@ export function BoothApp({
     setPhase("countdown");
     for (let n = seconds; n >= 1; n -= 1) {
       setCount(n);
-      if (settings?.soundsEnabled) playCountdownBeep(n);
+      if (soundsEnabled) playCountdownBeep(n);
       await new Promise((r) => setTimeout(r, 1000));
     }
     setCount(null);
-    if (settings?.flashEnabled) {
+    if (flashEnabled) {
       setFlash(true);
       window.setTimeout(() => setFlash(false), 140);
     }
-    if (settings?.soundsEnabled) playShutter();
+    if (soundsEnabled) playShutter();
     await peerRef.current?.sendControl({ action: "capture", captureId });
     return captureCurrent(captureId);
   }
@@ -170,8 +189,8 @@ export function BoothApp({
       /* kiosk optional */
     }
 
-    const seconds = settings?.countdownSeconds ?? 3;
-    const total = settings?.photosPerRound ?? 1;
+    const seconds = countdownSeconds;
+    const total = photosPerRound;
     const shots: Blob[] = [];
     const urls: string[] = [];
 
@@ -197,9 +216,11 @@ export function BoothApp({
       }
 
       if (shots.length === 0) return;
+      shotsRef.current = shots;
       const current = {
         ...(settings ?? DEFAULT_SETTINGS),
-        frameStyle: look.frameStyle ?? settings?.frameStyle ?? "gold",
+        frameStyle,
+        layoutStyle,
       };
       const logo = await loadRoomLogo(code, current.hasLogo);
       const strip = await composeSession(shots, current, logo);
@@ -227,6 +248,7 @@ export function BoothApp({
     setPhase("attract");
     setPhoto(null);
     setLocalFile(null);
+    shotsRef.current = [];
     setPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -243,7 +265,23 @@ export function BoothApp({
 
   function pickLook(next: BoothLook) {
     setLook(next);
-    if (phase === "attract") setPhase("live");
+  }
+
+  async function recompose() {
+    if (shotsRef.current.length === 0) return;
+    const current = {
+      ...(settings ?? DEFAULT_SETTINGS),
+      frameStyle,
+      layoutStyle,
+    };
+    const logo = await loadRoomLogo(code, current.hasLogo);
+    const strip = await composeSession(shotsRef.current, current, logo);
+    setLocalFile(strip);
+    setPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(strip);
+    });
+    setPhoto(null);
   }
 
   function beginOperatorHold() {
@@ -314,9 +352,9 @@ export function BoothApp({
           <p className="text-xs tracking-[0.5em] text-[#c4a35a]">{title}</p>
           <p className="mt-2 text-xs uppercase tracking-[0.25em] text-white/50">
             {phase === "attract"
-              ? "Válassz lookot"
+              ? "Állítsd be a boothot"
               : cameraOnline
-                ? `Élő · ${look.label}`
+                ? `${photosPerRound} fotó · ${look.label} · ${countdownSeconds}s`
                 : "Kamera várakozik"}
             {phase !== "attract" ? ` · ${connection}` : ""}
           </p>
@@ -340,17 +378,58 @@ export function BoothApp({
       ) : null}
 
       {phase === "attract" && cameraOnline ? (
-        <div className="absolute inset-0 z-10 flex flex-col justify-end bg-black/35 p-4 pt-24 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-8 sm:pt-28">
-          <div className="mx-auto w-full max-w-4xl">
-            <p className="mb-4 font-serif text-3xl sm:text-5xl">Melyik look?</p>
-            <LookGrid stream={stream} onSelect={pickLook} />
+        <div className="absolute inset-0 z-10 overflow-y-auto bg-black/45 p-4 pt-24 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:p-6 sm:pt-28">
+          <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+            <p className="font-serif text-3xl sm:text-5xl">Te választasz</p>
+            <GuestChooser
+              photos={photosPerRound}
+              layout={layoutStyle}
+              frame={frameStyle}
+              countdown={countdownSeconds}
+              sounds={soundsEnabled}
+              flash={flashEnabled}
+              onExperience={(preset) => {
+                setPhotosPerRound(preset.photos);
+                setLayoutStyle(preset.layout);
+              }}
+              onFrame={(preset) => setFrameStyle(preset.id)}
+              onCountdown={setCountdownSeconds}
+              onSounds={setSoundsEnabled}
+              onFlash={setFlashEnabled}
+            />
+            <div>
+              <p className="mb-2 text-[11px] tracking-[0.28em] text-[#c4a35a] uppercase">
+                Look
+              </p>
+              <LookGrid
+                stream={stream}
+                selectedId={look.id}
+                onSelect={pickLook}
+                compact
+              />
+            </div>
+            <div className="flex justify-center pb-2">
+              <KioskButton
+                className="min-h-20 min-w-[16rem] text-2xl"
+                onClick={() => setPhase("live")}
+              >
+                Kezdés
+              </KioskButton>
+            </div>
           </div>
         </div>
       ) : null}
 
       {phase === "live" && !busy ? (
         <div className="absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-black via-black/85 to-transparent pt-16">
-          <div className="flex flex-col items-center gap-5 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6">
+          <div className="flex flex-col items-center gap-4 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-6">
+            <button
+              type="button"
+              className="text-xs tracking-[0.22em] text-white/70 uppercase"
+              onClick={() => setPhase("attract")}
+            >
+              Élmény / sablon / időzítő
+            </button>
             <LookStrip stream={stream} selectedId={look.id} onSelect={pickLook} />
             <KioskButton
               className="min-h-20 min-w-[18rem] text-2xl"
@@ -364,7 +443,55 @@ export function BoothApp({
       ) : null}
 
       {phase === "preview" && (photo || localFile) ? (
-        <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center gap-4 p-8 pb-[max(2rem,env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 z-10 flex flex-col items-center gap-3 bg-gradient-to-t from-black via-black/90 to-transparent p-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6">
+          <p className="text-[11px] tracking-[0.28em] text-[#c4a35a] uppercase">
+            Sablon a kész fotón
+          </p>
+          <div className="flex max-w-full gap-2 overflow-x-auto">
+            {FRAMES.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`min-h-12 shrink-0 rounded-full px-4 text-xs tracking-[0.16em] uppercase ${
+                  frameStyle === preset.id ? "bg-[#c4a35a] text-black" : "bg-white/10"
+                }`}
+                onClick={() => {
+                  setFrameStyle(preset.id);
+                  window.setTimeout(() => void recompose(), 0);
+                }}
+              >
+                {preset.label}
+              </button>
+            ))}
+            {shotsRef.current.length > 1 ? (
+              <>
+                <button
+                  type="button"
+                  className={`min-h-12 shrink-0 rounded-full px-4 text-xs tracking-[0.16em] uppercase ${
+                    layoutStyle === "strip" ? "bg-white text-black" : "bg-white/10"
+                  }`}
+                  onClick={() => {
+                    setLayoutStyle("strip");
+                    window.setTimeout(() => void recompose(), 0);
+                  }}
+                >
+                  Csík
+                </button>
+                <button
+                  type="button"
+                  className={`min-h-12 shrink-0 rounded-full px-4 text-xs tracking-[0.16em] uppercase ${
+                    layoutStyle === "grid" ? "bg-white text-black" : "bg-white/10"
+                  }`}
+                  onClick={() => {
+                    setLayoutStyle("grid");
+                    window.setTimeout(() => void recompose(), 0);
+                  }}
+                >
+                  Rács
+                </button>
+              </>
+            ) : null}
+          </div>
           {shotUrls.length > 1 ? (
             <div className="flex gap-2">
               {shotUrls.map((url) => (
@@ -373,18 +500,18 @@ export function BoothApp({
                   key={url}
                   src={url}
                   alt=""
-                  className="h-16 w-16 rounded-lg object-cover ring-1 ring-white/20"
+                  className="h-14 w-14 rounded-lg object-cover ring-1 ring-white/20"
                 />
               ))}
             </div>
           ) : null}
-          <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-          <KioskButton variant="ghost" onClick={reset}>
-            Új fotó
-          </KioskButton>
-          <KioskButton variant="gold" onClick={() => setShareOpen(true)}>
-            QR-kód
-          </KioskButton>
+          <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <KioskButton variant="ghost" onClick={reset}>
+              Új fotó
+            </KioskButton>
+            <KioskButton variant="gold" onClick={() => setShareOpen(true)}>
+              QR-kód
+            </KioskButton>
           </div>
         </div>
       ) : null}
