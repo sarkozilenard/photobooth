@@ -265,6 +265,10 @@ export function AdminApp() {
               ) : (
                 <p className="text-white/40">Még nincs logó.</p>
               )}
+              <p className="text-xs leading-relaxed text-white/45">
+                Ha a felhő tárhely tele van, töltsd fel a logót az iPaden: tartsd
+                lenyomva a PHOTO BOOTH feliratot → Beállítások → Logó.
+              </p>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/gif"

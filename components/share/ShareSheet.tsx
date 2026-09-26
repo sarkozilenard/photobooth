@@ -6,14 +6,12 @@ import { KioskButton } from "@/components/ui/KioskButton";
 import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
 import { PhotoRecord } from "@/lib/types";
 
-async function makeQr(record: PhotoRecord) {
-  const url = `${window.location.origin}/p/${record.id}?t=${record.token}`;
-  const qr = await QRCode.toDataURL(url, {
+async function makeQr(url: string) {
+  return QRCode.toDataURL(url, {
     margin: 1,
     width: 512,
     color: { dark: "#111111", light: "#ffffff" },
   });
-  return { url, qr };
 }
 
 export function ShareSheet({
@@ -41,36 +39,45 @@ export function ShareSheet({
     async function prepare() {
       setQr(null);
       setStatus("QR készítése…");
-      let record = photo;
-      if (!record && file) {
-        setStatus("Mentés a tárhelyre…");
-        try {
-          record = await uploadFinishedPhoto({
-            file,
-            roomCode,
-            captureId,
-          });
-          onPhoto?.(record);
-        } catch (error) {
-          if (!cancelled) {
-            setStatus(
-              error instanceof Error
-                ? error.message
-                : "A tárhelyre mentés nem sikerült.",
-            );
-          }
-          return;
-        }
-      }
-      if (!record) {
+      if (!photo && !file) {
         if (!cancelled) setStatus("Előbb készíts fotót, aztán nyisd meg a QR-t.");
         return;
       }
+      const origin = window.location.origin;
+      const boothUrl = `${origin}/s/${roomCode}`;
       try {
-        const made = await makeQr(record);
+        if (photo) {
+          const image = await makeQr(`${origin}/p/${photo.id}?t=${photo.token}`);
+          if (!cancelled) {
+            setQr(image);
+            setStatus("Olvasd be a telefonoddal, és töltsd le a fotót.");
+          }
+          return;
+        }
+        const image = await makeQr(boothUrl);
         if (!cancelled) {
-          setQr(made.qr);
-          setStatus("");
+          setQr(image);
+          setStatus(
+            "Olvasd be a QR-t. Az iPad booth maradjon nyitva, amíg a telefon lekéri a fotót.",
+          );
+        }
+        if (file) {
+          try {
+            const record = await uploadFinishedPhoto({
+              file,
+              roomCode,
+              captureId,
+            });
+            if (cancelled) return;
+            onPhoto?.(record);
+            const cloud = await makeQr(`${origin}/p/${record.id}?t=${record.token}`);
+            if (!cancelled) {
+              setQr(cloud);
+              setStatus("Olvasd be a telefonoddal, és töltsd le a fotót.");
+            }
+          } catch {
+            /* a booth QR Blob nélkül is megy */
+          }
         }
       } catch {
         if (!cancelled) setStatus("A QR-kód nem készült el.");
@@ -81,9 +88,18 @@ export function ShareSheet({
     return () => {
       cancelled = true;
     };
-    // onPhoto szándékosan kimarad: a parent state frissítése ne indítsa újra a feltöltést
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo, file, roomCode, captureId, retry]);
+
+  async function shareFromBooth() {
+    if (!file || typeof navigator.share !== "function") return;
+    const jpeg = new File([file], "photobooth.jpg", { type: "image/jpeg" });
+    try {
+      await navigator.share({ files: [jpeg] });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+    }
+  }
 
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-6 backdrop-blur-md">
@@ -97,12 +113,17 @@ export function ShareSheet({
             className="h-72 w-72 rounded-3xl bg-white p-4 sm:h-80 sm:w-80"
           />
         ) : (
-          <div className="h-72 w-72 animate-pulse rounded-3xl bg-white/10 sm:h-80 sm:w-80" />
+          <div className="h-72 w-72 animate-pulse rounded-3xl bg-white/10" />
         )}
         <p className="max-w-sm text-center text-base leading-relaxed text-white/70">
-          {status || "Olvasd be a telefonoddal, és töltsd le a fotót."}
+          {status}
         </p>
         <div className="flex flex-wrap justify-center gap-3">
+          {file && typeof navigator.share === "function" ? (
+            <KioskButton variant="gold" onClick={() => void shareFromBooth()}>
+              AirDrop
+            </KioskButton>
+          ) : null}
           {!qr ? (
             <KioskButton variant="gold" onClick={() => setRetry((n) => n + 1)}>
               Újra

@@ -10,6 +10,7 @@ export interface LiveLink {
   sendControl: (payload: ControlPayload) => Promise<void>;
   sendPhotoFile: (blob: Blob, meta: ControlPayload) => Promise<void>;
   replaceTrack: (track: MediaStreamTrack) => Promise<void>;
+  setShareFile?: (blob: Blob | null) => void;
   close: () => void;
 }
 
@@ -74,6 +75,7 @@ function bindData(
   conn: DataConnection,
   onControl: (msg: ControlPayload) => void,
   onPhoto?: (blob: Blob, meta: ControlPayload) => void,
+  getShare?: () => Blob | null,
 ) {
   conn.on("data", (data) => {
     let payload: unknown = data;
@@ -92,6 +94,28 @@ function bindData(
       photo?: string;
       mime?: string;
     };
+    if (msg.kind === "want-share") {
+      const blob = getShare?.() ?? null;
+      void (async () => {
+        if (!blob) {
+          emit(conn, { kind: "share-empty" });
+          return;
+        }
+        const photo = await blobToBase64(blob);
+        const slice = 8000;
+        const total = Math.ceil(photo.length / slice);
+        emit(conn, { kind: "share-begin", mime: blob.type || "image/jpeg", total });
+        for (let i = 0; i < total; i += 1) {
+          emit(conn, {
+            kind: "share-part",
+            i,
+            data: photo.slice(i * slice, (i + 1) * slice),
+          });
+        }
+        emit(conn, { kind: "share-end" });
+      })();
+      return;
+    }
     if (msg.kind === "photo" && msg.photo && msg.control && onPhoto) {
       const bytes = Uint8Array.from(atob(msg.photo), (c) => c.charCodeAt(0));
       onPhoto(new Blob([bytes], { type: msg.mime || "image/jpeg" }), msg.control);
@@ -260,11 +284,12 @@ export async function startBoothLive(options: {
   const peer = await openBoothPeer(boothPeerId(options.code));
   const conns = new Set<DataConnection>();
   let media: MediaConnection | null = null;
+  let shareBlob: Blob | null = null;
 
   peer.on("connection", (incoming) => {
     conns.add(incoming);
-    incoming.on("open", () => options.onStatus("iPhone csatlakozott"));
-    bindData(incoming, options.onControl, options.onPhoto);
+    incoming.on("open", () => options.onStatus("készülék csatlakozott"));
+    bindData(incoming, options.onControl, options.onPhoto, () => shareBlob);
     incoming.on("close", () => conns.delete(incoming));
   });
 
@@ -288,6 +313,9 @@ export async function startBoothLive(options: {
     },
     sendPhotoFile: async () => undefined,
     replaceTrack: async () => undefined,
+    setShareFile: (blob) => {
+      shareBlob = blob;
+    },
     close: () => {
       closed = true;
       media?.close();
@@ -295,4 +323,74 @@ export async function startBoothLive(options: {
       peer.destroy();
     },
   };
+}
+
+export async function pullShareFromBooth(
+  code: string,
+  onStatus: (text: string) => void,
+) {
+  const boothId = boothPeerId(code);
+  const peer = await openCameraPeer();
+  return new Promise<Blob>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      peer.destroy();
+      reject(new Error("Az iPad nem válaszol. Hagyd nyitva a QR-t a boothon."));
+    }, 28000);
+    const parts: string[] = [];
+    let total = 0;
+    const conn = peer.connect(boothId, { reliable: true });
+    conn.on("open", () => {
+      onStatus("Kapcsolódva, fotó kérése…");
+      emit(conn, { kind: "want-share" });
+    });
+    conn.on("error", () => {
+      window.clearTimeout(timer);
+      peer.destroy();
+      reject(new Error("Nem sikerült kapcsolódni az iPadhez."));
+    });
+    conn.on("data", (data) => {
+      let payload: unknown = data;
+      if (typeof data === "string") {
+        try {
+          payload = JSON.parse(data);
+        } catch {
+          return;
+        }
+      }
+      if (typeof payload !== "object" || payload === null) return;
+      const msg = payload as {
+        kind?: string;
+        total?: number;
+        i?: number;
+        data?: string;
+        mime?: string;
+      };
+      if (msg.kind === "share-empty") {
+        window.clearTimeout(timer);
+        peer.destroy();
+        reject(new Error("Nincs kész fotó. A boothon nyisd meg a QR-t a fotó után."));
+        return;
+      }
+      if (msg.kind === "share-begin") {
+        total = Number(msg.total) || 0;
+        onStatus("Fotó érkezik…");
+        return;
+      }
+      if (msg.kind === "share-part" && typeof msg.i === "number" && msg.data) {
+        parts[msg.i] = msg.data;
+        return;
+      }
+      if (msg.kind === "share-end") {
+        window.clearTimeout(timer);
+        if (total && parts.filter(Boolean).length < total) {
+          peer.destroy();
+          reject(new Error("A fotó hiányosan jött át. Próbáld újra."));
+          return;
+        }
+        const bytes = Uint8Array.from(atob(parts.join("")), (c) => c.charCodeAt(0));
+        peer.destroy();
+        resolve(new Blob([bytes], { type: "image/jpeg" }));
+      }
+    });
+  });
 }

@@ -23,9 +23,11 @@ function canShareFile(file: File) {
 
 export function GuestPhoto({
   src,
+  file: incoming,
   filename,
 }: {
-  src: string;
+  src?: string;
+  file?: File | Blob | null;
   filename: string;
 }) {
   const [status, setStatus] = useState("A fotó betöltése…");
@@ -38,6 +40,26 @@ export function GuestPhoto({
 
     async function load() {
       try {
+        if (incoming) {
+          const jpeg =
+            incoming instanceof File
+              ? incoming
+              : new File([incoming], filename, { type: "image/jpeg" });
+          objectUrl = URL.createObjectURL(jpeg);
+          if (cancelled) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+          }
+          setFile(jpeg);
+          setLocalUrl(objectUrl);
+          setStatus(
+            isIOS()
+              ? "Tartsd lenyomva a képet → Mentés a Fotókba. AirDrop: koppints a gombra."
+              : "Koppints a Mentés gombra.",
+          );
+          return;
+        }
+        if (!src) throw new Error("Nincs fotó");
         const res = await fetch(src, { cache: "no-store" });
         if (!res.ok) throw new Error("A fotó nem tölthető le");
         const blob = await res.blob();
@@ -71,7 +93,7 @@ export function GuestPhoto({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [src, filename]);
+  }, [src, incoming, filename]);
 
   async function sharePhoto() {
     if (!file || !localUrl) return;

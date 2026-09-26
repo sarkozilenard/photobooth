@@ -20,6 +20,7 @@ import {
   getCameraStream,
 } from "@/lib/camera/capture";
 import { composeSession, loadRoomLogo } from "@/lib/branding/compose";
+import { deleteLocalLogo, readLocalLogo, saveLocalLogo } from "@/lib/branding/local-logo";
 import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
 import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
@@ -66,6 +67,7 @@ export function BoothApp({
   const [lookPoster, setLookPoster] = useState("");
   const [camSize, setCamSize] = useState({ w: 16, h: 9 });
   const [moreOpen, setMoreOpen] = useState(false);
+  const [localLogoUrl, setLocalLogoUrl] = useState<string | null>(null);
   const composeGen = useRef(0);
   const [shotUrls, setShotUrls] = useState<string[]>([]);
   const [shotLabel, setShotLabel] = useState("");
@@ -94,6 +96,20 @@ export function BoothApp({
       setFlashEnabled(data.settings.flashEnabled ?? true);
     }
   }, [code, settingsOpen]);
+
+  useEffect(() => {
+    let alive = true;
+    let url = "";
+    void readLocalLogo(code).then((blob) => {
+      if (!alive || !blob) return;
+      url = URL.createObjectURL(blob);
+      setLocalLogoUrl(url);
+    });
+    return () => {
+      alive = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [code]);
 
   useEffect(() => {
     void loadSettings();
@@ -291,16 +307,13 @@ export function BoothApp({
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(strip);
       });
+      peerRef.current?.setShareFile?.(strip);
       setPhase("preview");
       try {
         await persistFinished(strip);
         setNotice("");
-      } catch (error) {
-        setNotice(
-          error instanceof Error
-            ? error.message
-            : "A kész fotó nem került a tárhelyre.",
-        );
+      } catch {
+        setNotice("");
       }
     } catch (error) {
       holdPreviewRef.current = false;
@@ -330,6 +343,7 @@ export function BoothApp({
       return [];
     });
     setShareOpen(false);
+    peerRef.current?.setShareFile?.(null);
     setBusy(false);
     setCount(null);
     setShotLabel("");
@@ -338,14 +352,19 @@ export function BoothApp({
   }
 
   async function persistFinished(blob: Blob) {
-    const record = await uploadFinishedPhoto({
-      file: blob,
-      roomCode: code,
-      photoId: photoRef.current?.id,
-      token: photoRef.current?.token,
-    });
-    photoRef.current = record;
-    setPhoto(record);
+    peerRef.current?.setShareFile?.(blob);
+    try {
+      const record = await uploadFinishedPhoto({
+        file: blob,
+        roomCode: code,
+        photoId: photoRef.current?.id,
+        token: photoRef.current?.token,
+      });
+      photoRef.current = record;
+      setPhoto(record);
+    } catch {
+      /* QR a booth PeerJS-en megy, Blob nélkül */
+    }
   }
 
   function pickLook(next: BoothLook) {
@@ -765,6 +784,49 @@ export function BoothApp({
                   <option value="gold">Arany</option>
                   <option value="minimal">Minimal</option>
                 </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm">
+                Logó (ezen a tableten, Blob nélkül)
+                {localLogoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={localLogoUrl}
+                    alt="Logó"
+                    className="h-16 w-auto max-w-[12rem] rounded-xl bg-white/5 object-contain p-2"
+                  />
+                ) : (
+                  <p className="text-white/45">Még nincs logó ezen a készüléken.</p>
+                )}
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  className="text-sm file:mr-3 file:rounded-full file:border-0 file:bg-white file:px-4 file:py-2 file:text-black"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    void saveLocalLogo(code, file).then((blob) => {
+                      setLocalLogoUrl((prev) => {
+                        if (prev) URL.revokeObjectURL(prev);
+                        return URL.createObjectURL(blob);
+                      });
+                    });
+                  }}
+                />
+                {localLogoUrl ? (
+                  <button
+                    type="button"
+                    className="w-fit text-sm text-white/50 underline"
+                    onClick={() => {
+                      void deleteLocalLogo(code);
+                      setLocalLogoUrl((prev) => {
+                        if (prev) URL.revokeObjectURL(prev);
+                        return null;
+                      });
+                    }}
+                  >
+                    Logó törlése
+                  </button>
+                ) : null}
               </label>
             </div>
             <div className="mt-6 flex gap-3">

@@ -1,7 +1,14 @@
 import { BoothSettings, FrameStyle, LayoutStyle } from "@/lib/types";
 import { canUseGrid } from "@/lib/booth/guest-presets";
+import { readLocalLogo } from "@/lib/branding/local-logo";
 
 export async function loadRoomLogo(code: string, hasLogo?: boolean) {
+  try {
+    const local = await readLocalLogo(code);
+    if (local) return createImageBitmap(local);
+  } catch {
+    /* API fallback */
+  }
   if (!hasLogo) return null;
   try {
     const res = await fetch(`/api/branding/${code}/logo`);
