@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { KioskButton } from "@/components/ui/KioskButton";
+import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
 import { PhotoRecord } from "@/lib/types";
 
 async function makeQr(record: PhotoRecord) {
@@ -13,45 +14,6 @@ async function makeQr(record: PhotoRecord) {
     color: { dark: "#111111", light: "#ffffff" },
   });
   return { url, qr };
-}
-
-async function shrinkJpeg(blob: Blob, quality: number) {
-  const image = await createImageBitmap(blob);
-  const maxEdge = 1600;
-  const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round(image.width * scale));
-  canvas.height = Math.max(1, Math.round(image.height * scale));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) {
-    image.close();
-    return blob;
-  }
-  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-  image.close();
-  const compact = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((value) => resolve(value), "image/jpeg", quality),
-  );
-  return compact && compact.size < blob.size ? compact : blob;
-}
-
-async function readError(res: Response) {
-  const text = await res.text();
-  try {
-    const data = JSON.parse(text) as { error?: unknown };
-    if (typeof data.error === "string" && data.error.trim()) return data.error;
-  } catch {
-    /* HTML / üres válasz */
-  }
-  if (res.status === 413) return "A fotó túl nagy a feltöltéshez.";
-  if (res.status === 404) return "A booth nem található. Frissítsd az oldalt.";
-  if (res.status === 503) {
-    return "A QR-hez Vercel Blob kell: Vercel → Storage → Blob → Connect, majd Redeploy.";
-  }
-  if (res.status === 500) {
-    return "A szerver nem tudta elmenteni a fotót. Vercel → Storage → Blob → Connect, majd Redeploy.";
-  }
-  return text.trim().slice(0, 180) || `Feltöltés sikertelen (${res.status}).`;
 }
 
 export function ShareSheet({
@@ -78,30 +40,27 @@ export function ShareSheet({
 
     async function prepare() {
       setQr(null);
-      setStatus("Feltöltés…");
+      setStatus("QR készítése…");
       let record = photo;
       if (!record && file) {
-        const packed =
-          file.size > 3.2 * 1024 * 1024 ? await shrinkJpeg(file, 0.72) : file;
-        const upload = new File([packed], "photobooth.jpg", {
-          type: "image/jpeg",
-        });
-        const form = new FormData();
-        form.set("file", upload);
-        form.set("roomCode", roomCode);
-        if (captureId) form.set("captureId", captureId);
-        const res = await fetch("/api/photos", { method: "POST", body: form });
-        if (!res.ok) {
-          if (!cancelled) setStatus(await readError(res));
+        setStatus("Mentés a tárhelyre…");
+        try {
+          record = await uploadFinishedPhoto({
+            file,
+            roomCode,
+            captureId,
+          });
+          onPhoto?.(record);
+        } catch (error) {
+          if (!cancelled) {
+            setStatus(
+              error instanceof Error
+                ? error.message
+                : "A tárhelyre mentés nem sikerült.",
+            );
+          }
           return;
         }
-        const data = (await res.json().catch(() => ({}))) as { photo?: PhotoRecord };
-        if (!data.photo) {
-          if (!cancelled) setStatus("A szerver nem adta vissza a fotót. Próbáld újra.");
-          return;
-        }
-        record = data.photo;
-        onPhoto?.(record);
       }
       if (!record) {
         if (!cancelled) setStatus("Előbb készíts fotót, aztán nyisd meg a QR-t.");

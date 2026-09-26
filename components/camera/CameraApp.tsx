@@ -7,27 +7,10 @@ import {
   captureFromVideo,
   getCameraStream,
 } from "@/lib/camera/capture";
-import { createId } from "@/lib/ids";
-import {
-  enqueuePhoto,
-  flushUploadQueue,
-  QueuedPhoto,
-} from "@/lib/photos/queue";
 import { countdownEndsAt, runSyncedCountdown } from "@/lib/booth/sync-countdown";
 import { playCountdownBeep, playShutter, resumeAudio } from "@/lib/sounds";
 import { BoothSettings } from "@/lib/types";
 import { ControlPayload, LiveLink, startCameraLive } from "@/lib/webrtc/live";
-
-async function uploadPhoto(item: QueuedPhoto) {
-  const form = new FormData();
-  form.set("file", item.blob, `${item.id}.jpg`);
-  form.set("roomCode", item.roomCode);
-  form.set("captureId", item.captureId);
-  form.set("photoId", item.id);
-  const res = await fetch("/api/photos", { method: "POST", body: form });
-  if (!res.ok) return null;
-  return (await res.json()) as { photo: { id: string; token: string } };
-}
 
 export function CameraApp({ code }: { code: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -56,15 +39,6 @@ export function CameraApp({ code }: { code: string }) {
   }, [loadSettings]);
 
   useEffect(() => {
-    const onOnline = () => {
-      void flushUploadQueue(async (item) => Boolean(await uploadPhoto(item)));
-    };
-    window.addEventListener("online", onOnline);
-    onOnline();
-    return () => window.removeEventListener("online", onOnline);
-  }, []);
-
-  useEffect(() => {
     return () => {
       peerRef.current?.close();
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -79,36 +53,10 @@ export function CameraApp({ code }: { code: string }) {
       quality: settings?.jpegQuality ?? 0.92,
       maxEdge: settings?.maxEdge ?? 2560,
     });
-    const photoId = createId();
-    const queued: QueuedPhoto = {
-      id: photoId,
-      roomCode: code,
+    await peerRef.current?.sendPhotoFile(blob, {
+      action: "photo-ready",
       captureId,
-      blob,
-      createdAt: new Date().toISOString(),
-      attempts: 0,
-    };
-    await enqueuePhoto(queued);
-    try {
-      const uploaded = await uploadPhoto(queued);
-      const meta = {
-        action: "photo-ready" as const,
-        captureId,
-        photoId: uploaded ? uploaded.photo.id : photoId,
-        photoToken: uploaded?.photo.token,
-      };
-      await peerRef.current?.sendPhotoFile(blob, meta);
-      if (uploaded) {
-        await peerRef.current?.sendControl(meta);
-      }
-    } catch {
-      await peerRef.current?.sendPhotoFile(blob, {
-        action: "photo-ready",
-        captureId,
-        photoId,
-      });
-      setStatus("Mentve helyben, feltöltés később");
-    }
+    });
   }
 
   async function handleControl(msg: ControlPayload) {
@@ -188,7 +136,7 @@ export function CameraApp({ code }: { code: string }) {
     <div className="relative h-[100dvh] w-full overflow-hidden bg-black text-white">
       <video
         ref={videoRef}
-        className="absolute inset-0 h-full w-full bg-black object-cover"
+        className="absolute inset-0 h-full w-full bg-black object-contain"
         playsInline
         muted
         autoPlay

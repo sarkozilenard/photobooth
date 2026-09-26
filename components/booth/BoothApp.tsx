@@ -22,6 +22,7 @@ import {
 import { composeSession, loadRoomLogo } from "@/lib/branding/compose";
 import { BoothLook, DEFAULT_LOOK } from "@/lib/effects/looks";
 import { createId } from "@/lib/ids";
+import { uploadFinishedPhoto } from "@/lib/photos/client-upload";
 
 type Phase = "attract" | "live" | "countdown" | "preview";
 
@@ -71,6 +72,7 @@ export function BoothApp({
   const sessionRef = useRef(false);
   const holdPreviewRef = useRef(false);
   const shotsRef = useRef<Blob[]>([]);
+  const photoRef = useRef<PhotoRecord | null>(null);
   const holdRef = useRef<number | null>(null);
   const ring = useRef(createRingLightDriver());
 
@@ -231,6 +233,8 @@ export function BoothApp({
     setBusy(true);
     sessionRef.current = true;
     holdPreviewRef.current = true;
+    photoRef.current = null;
+    setPhoto(null);
     await resumeAudio();
     try {
       await document.documentElement.requestFullscreen?.();
@@ -287,9 +291,17 @@ export function BoothApp({
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(strip);
       });
-      setPhoto(null);
-      setNotice("");
       setPhase("preview");
+      try {
+        await persistFinished(strip);
+        setNotice("");
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "A kész fotó nem került a tárhelyre.",
+        );
+      }
     } catch (error) {
       holdPreviewRef.current = false;
       setNotice(error instanceof Error ? error.message : "A montázs nem készült el.");
@@ -306,6 +318,7 @@ export function BoothApp({
     holdPreviewRef.current = false;
     setPhase("live");
     setPhoto(null);
+    photoRef.current = null;
     setLocalFile(null);
     shotsRef.current = [];
     setPreviewUrl((prev) => {
@@ -322,6 +335,17 @@ export function BoothApp({
     setShotLabel("");
     setNotice("");
     void videoRef.current?.play().catch(() => undefined);
+  }
+
+  async function persistFinished(blob: Blob) {
+    const record = await uploadFinishedPhoto({
+      file: blob,
+      roomCode: code,
+      photoId: photoRef.current?.id,
+      token: photoRef.current?.token,
+    });
+    photoRef.current = record;
+    setPhoto(record);
   }
 
   function pickLook(next: BoothLook) {
@@ -355,7 +379,15 @@ export function BoothApp({
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(strip);
       });
-      setPhoto(null);
+      try {
+        await persistFinished(strip);
+      } catch (error) {
+        setNotice(
+          error instanceof Error
+            ? error.message
+            : "A kész fotó nem került a tárhelyre.",
+        );
+      }
     } catch (error) {
       if (gen !== composeGen.current) return;
       setNotice(error instanceof Error ? error.message : "A sablon nem készült el.");
@@ -375,6 +407,12 @@ export function BoothApp({
   const title = settings?.name || "PHOTO BOOTH";
   const photoLandscape =
     aspect.ratio != null ? aspect.ratio >= 1 : camSize.w >= camSize.h;
+  const stageRatio =
+    aspect.ratio && aspect.ratio > 0
+      ? aspect.ratio
+      : camSize.h > 0
+        ? camSize.w / camSize.h
+        : null;
   const liveDock = phase === "live" && cameraOnline && !busy;
   const previewLayouts = LAYOUTS.filter(
     (preset) => preset.id === "strip" || canUseGrid(shotUrls.length),
@@ -452,9 +490,9 @@ export function BoothApp({
         <div
           className={`relative max-h-full overflow-hidden bg-black ${phase === "preview" ? "hidden" : ""}`}
           style={
-            aspect.ratio
+            stageRatio
               ? {
-                  aspectRatio: String(aspect.ratio),
+                  aspectRatio: String(stageRatio),
                   height: "100%",
                   width: "auto",
                   maxWidth: "100%",
@@ -464,7 +502,9 @@ export function BoothApp({
         >
           <video
             ref={videoRef}
-            className="absolute inset-0 h-full w-full bg-black object-cover"
+            className={`absolute inset-0 h-full w-full bg-black ${
+              aspect.ratio ? "object-cover" : "object-contain"
+            }`}
             style={{ filter: look.filter }}
             playsInline
             muted
@@ -646,7 +686,10 @@ export function BoothApp({
           photo={photo}
           file={localFile}
           roomCode={code}
-          onPhoto={setPhoto}
+          onPhoto={(record) => {
+            photoRef.current = record;
+            setPhoto(record);
+          }}
           onClose={() => setShareOpen(false)}
         />
       ) : null}

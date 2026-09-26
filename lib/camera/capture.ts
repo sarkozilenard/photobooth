@@ -71,7 +71,10 @@ export async function captureFromVideo(
   if (!ctx) throw new Error("Nincs canvas");
   ctx.fillStyle = "#000000";
   ctx.fillRect(0, 0, width, height);
-  const fit = Math.max(width / srcW, height / srcH);
+  const crop = Boolean(aspect && aspect > 0);
+  const fit = crop
+    ? Math.max(width / srcW, height / srcH)
+    : Math.min(width / srcW, height / srcH);
   const dw = srcW * fit;
   const dh = srcH * fit;
   ctx.drawImage(video, (width - dw) / 2, (height - dh) / 2, dw, dh);

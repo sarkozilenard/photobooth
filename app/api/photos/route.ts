@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdmin } from "@/lib/auth";
 import { createId, createToken } from "@/lib/ids";
 import {
+  getPhoto,
   getSettings,
   listPhotos,
   savePhoto,
@@ -43,6 +44,8 @@ export async function POST(request: NextRequest) {
     const roomCode = String(form.get("roomCode") || "").toUpperCase();
     const captureId = String(form.get("captureId") || "");
     const photoId = String(form.get("photoId") || createId());
+    const existing = await getPhoto(photoId);
+    const token = String(form.get("token") || existing?.token || createToken());
 
     if (!isFileBlob(file)) {
       return NextResponse.json({ error: "Hiányzó vagy üres fájl" }, { status: 400 });
@@ -65,16 +68,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const token = createToken();
     const record: PhotoRecord = {
       id: photoId,
       roomCode,
-      createdAt: new Date().toISOString(),
+      createdAt: existing?.createdAt || new Date().toISOString(),
       status: "ready",
       mimeType: file.type || "image/jpeg",
       size: bytes.length,
       token,
-      captureId,
+      captureId: captureId || existing?.captureId,
     };
 
     try {

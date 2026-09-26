@@ -59,7 +59,13 @@ export function LayoutMock({
             >
               {poster ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={poster} alt="" className="h-full w-full object-cover" />
+                <img
+                  src={poster}
+                  alt=""
+                  className={`h-full w-full ${
+                    aspectRatio && aspectRatio > 0 ? "object-cover" : "object-contain"
+                  }`}
+                />
               ) : (
                 <div className="h-full w-full bg-white/10" />
               )}

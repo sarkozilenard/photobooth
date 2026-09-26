@@ -39,7 +39,7 @@ export interface AspectPreset {
 }
 
 export const ASPECTS: AspectPreset[] = [
-  { id: "native", label: "Eredeti", ratio: null },
+  { id: "native", label: "Teljes", ratio: null },
   { id: "1-1", label: "1:1", ratio: 1 },
   { id: "4-5", label: "4:5", ratio: 4 / 5 },
   { id: "3-2", label: "3:2", ratio: 3 / 2 },
